@@ -43,6 +43,8 @@ const state = {
   selectedEdgeId: null,
   viewTransform: { x: 0, y: 0, scale: 1 },
   taskFilter: false,   // zobrazit jen uzly s task.enabled
+  selectedNodeIds: [],   // multiselect uzlů (Shift+klik / rubber band)
+  selectedGroupIds: [],  // multiselect skupin (Ctrl+klik / Ctrl+Shift rubber band)
 };
 
 export function getState() { return state; }
@@ -94,19 +96,22 @@ let panStart = { x: 0, y: 0 };
 let viewStart = { x: 0, y: 0 };
 
 svg.addEventListener('mousedown', (e) => {
-  // Pan jen na prázdné ploše (pozadí nebo samotné svg)
-  if (e.target === svg || e.target === gridBg) {
-    panning = true;
-    panStart = { x: e.clientX, y: e.clientY };
-    viewStart = { x: state.viewTransform.x, y: state.viewTransform.y };
-    svg.classList.add('panning');
-    // Klik mimo uzel/panel zavře detail panel a zruší výběr
-    panel.close();
-    state.selectedNodeId = null;
-    if (state.selectedEdgeId) {
-      state.selectedEdgeId = null;
-      edges.renderEdges(state.map.nodes, state.map.edges);
-    }
+  // Pan / rubber band jen na prázdné ploše (pozadí nebo samotné svg)
+  if (e.target !== svg && e.target !== gridBg) return;
+  if (e.button !== 0) return;
+  // Shift = rubber band uzlů, Ctrl+Shift = rubber band skupin
+  if (e.shiftKey) { startRubberBand(e, (e.ctrlKey || e.metaKey) ? 'groups' : 'nodes'); return; }
+  panning = true;
+  panStart = { x: e.clientX, y: e.clientY };
+  viewStart = { x: state.viewTransform.x, y: state.viewTransform.y };
+  svg.classList.add('panning');
+  // Klik mimo uzel/panel zavře detail panel a zruší výběr (vč. multiselectu)
+  panel.close();
+  state.selectedNodeId = null;
+  clearMultiSelect();
+  if (state.selectedEdgeId) {
+    state.selectedEdgeId = null;
+    edges.renderEdges(state.map.nodes, state.map.edges);
   }
 });
 
@@ -142,6 +147,180 @@ export function addRootNodeAt(clientX, clientY) {
   pushHistory();
   autoSave();
   return node;
+}
+
+// --- Multiselect (uzly: Shift, skupiny: Ctrl) ---
+let multiBar = null;
+
+(function injectMultiStyles() {
+  if (document.getElementById('multi-style')) return;
+  const s = document.createElement('style');
+  s.id = 'multi-style';
+  s.textContent = `
+    #rubber-band { position: fixed; z-index: 90; border: 1.5px solid #F59E0B;
+      background: #F59E0B1a; pointer-events: none; border-radius: 2px; }
+    #multi-toolbar { position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+      z-index: 60; display: flex; align-items: center; gap: 8px;
+      background: #15152aee; border: 1px solid #F59E0B66; border-radius: 10px;
+      padding: 6px 12px; box-shadow: 0 8px 30px #0008;
+      font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #e5e5f0; }
+    #multi-toolbar .mt-label { color: #F59E0B; font-weight: 600; margin-right: 4px; }
+    #multi-toolbar .mt-swatch { width: 16px; height: 16px; border-radius: 4px; cursor: pointer; border: 1px solid #ffffff22; }
+    #multi-toolbar .mt-swatch:hover { transform: scale(1.15); }
+    #multi-toolbar .mt-color { width: 22px; height: 20px; padding: 0; border: none; background: none; cursor: pointer; }
+    #multi-toolbar .mt-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; color: #e5e5f0; background: #2a2a44; border: none; border-radius: 6px; cursor: pointer; }
+    #multi-toolbar .mt-btn:hover { background: #34344f; }
+    #multi-toolbar .mt-danger { background: #5a1f1f; }
+    #multi-toolbar .mt-danger:hover { background: #7a2a2a; }`;
+  document.head.appendChild(s);
+})();
+
+export function getSelectedNodeIds() { return state.selectedNodeIds; }
+export function getSelectedGroupIds() { return state.selectedGroupIds; }
+
+// Přepne plovoucí multiselect toolbar podle počtu vybraných (zobrazí se od 2 položek)
+function updateMultiToolbar() {
+  const nCount = state.selectedNodeIds.length;
+  const gCount = state.selectedGroupIds.length;
+  if (nCount + gCount < 2) { if (multiBar) { multiBar.remove(); multiBar = null; } return; }
+  if (!multiBar) { multiBar = document.createElement('div'); multiBar.id = 'multi-toolbar'; document.body.appendChild(multiBar); }
+  multiBar.innerHTML = '';
+  const lbl = document.createElement('span');
+  lbl.className = 'mt-label';
+  lbl.textContent = `${nCount + gCount} vybráno`;
+  multiBar.appendChild(lbl);
+  if (nCount) {
+    const PRESETS = [['purple', '#7C3AED'], ['green', '#059669'], ['neutral', '#3a3a5e'], ['amber', '#F59E0B'], ['red', '#E24B4A']];
+    for (const [key, col] of PRESETS) {
+      const sw = document.createElement('span');
+      sw.className = 'mt-swatch'; sw.style.background = col; sw.title = key;
+      sw.addEventListener('click', () => applyMultiColor(key, null));
+      multiBar.appendChild(sw);
+    }
+    const custom = document.createElement('input');
+    custom.type = 'color'; custom.className = 'mt-color'; custom.title = 'Vlastní barva';
+    custom.addEventListener('input', () => applyMultiColor('custom', custom.value));
+    multiBar.appendChild(custom);
+    const grp = document.createElement('button');
+    grp.className = 'mt-btn'; grp.textContent = 'Seskupit';
+    grp.addEventListener('click', () => groups.groupSelected());
+    multiBar.appendChild(grp);
+  }
+  const del = document.createElement('button');
+  del.className = 'mt-btn mt-danger'; del.textContent = `Smazat (${nCount + gCount})`;
+  del.addEventListener('click', () => deleteSelected());
+  multiBar.appendChild(del);
+}
+
+// Aplikuje barvu na všechny vybrané uzly
+function applyMultiColor(colorKey, hex) {
+  for (const id of state.selectedNodeIds) {
+    const n = getNode(id);
+    if (!n) continue;
+    if (colorKey === 'custom' && hex) { n.color = 'custom'; n.customColor = { fill: hex + '1a', stroke: hex, glow: hex }; }
+    else { n.color = colorKey; n.customColor = null; }
+  }
+  nodes.renderAll();
+  pushHistory();
+  autoSave();
+}
+
+// Hromadné smazání vybraných uzlů (vč. podstromů) a skupin
+export function deleteSelected() {
+  const map = state.map;
+  const toRemove = new Set();
+  const collect = (id) => { toRemove.add(id); map.nodes.filter((n) => n.parentId === id).forEach((n) => collect(n.id)); };
+  state.selectedNodeIds.forEach(collect);
+  map.nodes = map.nodes.filter((n) => !toRemove.has(n.id));
+  map.edges = map.edges.filter((e) => !toRemove.has(e.fromId) && !toRemove.has(e.toId));
+  const gids = new Set(state.selectedGroupIds);
+  if (gids.size) {
+    map.groups = map.groups.filter((gr) => !gids.has(gr.id));
+    for (const n of map.nodes) if (gids.has(n.groupId)) delete n.groupId;
+  }
+  if (drill.isActive()) drill.pruneRemoved(toRemove);
+  state.selectedNodeIds = [];
+  state.selectedGroupIds = [];
+  state.selectedNodeId = null;
+  panel.close();
+  renderMap();
+  updateMultiToolbar();
+  pushHistory();
+  autoSave();
+}
+
+// Přidá/odebere uzel z multiselectu (Shift+klik); naváže na případný jednoduchý výběr
+export function toggleNodeSelect(id) {
+  if (!state.selectedNodeIds.length && state.selectedNodeId && state.selectedNodeId !== id) {
+    state.selectedNodeIds = [state.selectedNodeId];
+  }
+  const i = state.selectedNodeIds.indexOf(id);
+  if (i >= 0) state.selectedNodeIds.splice(i, 1);
+  else state.selectedNodeIds.push(id);
+  state.selectedNodeId = state.selectedNodeIds[state.selectedNodeIds.length - 1] || null;
+  panel.close();
+  nodes.renderAll();
+  updateMultiToolbar();
+}
+
+// Přidá/odebere skupinu z multiselectu (Ctrl+klik)
+export function toggleGroupSelect(id) {
+  const i = state.selectedGroupIds.indexOf(id);
+  if (i >= 0) state.selectedGroupIds.splice(i, 1);
+  else state.selectedGroupIds.push(id);
+  groups.renderGroups();
+  updateMultiToolbar();
+}
+
+// Zruší celý multiselect (Escape / klik na prázdno)
+export function clearMultiSelect() {
+  if (!state.selectedNodeIds.length && !state.selectedGroupIds.length) return;
+  state.selectedNodeIds = [];
+  state.selectedGroupIds = [];
+  nodes.renderAll();
+  groups.renderGroups();
+  updateMultiToolbar();
+}
+
+// --- Rubber band (tažený výběrový obdélník) ---
+function rectsIntersect(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
+  return !(ax2 < bx1 || bx2 < ax1 || ay2 < by1 || by2 < ay1);
+}
+
+function startRubberBand(e, mode) {
+  const box = document.createElement('div');
+  box.id = 'rubber-band';
+  document.body.appendChild(box);
+  const x0 = e.clientX, y0 = e.clientY;
+  const move = (ev) => {
+    box.style.left = Math.min(x0, ev.clientX) + 'px';
+    box.style.top = Math.min(y0, ev.clientY) + 'px';
+    box.style.width = Math.abs(ev.clientX - x0) + 'px';
+    box.style.height = Math.abs(ev.clientY - y0) + 'px';
+  };
+  const up = (ev) => {
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', up);
+    box.remove();
+    const a = clientToMap(Math.min(x0, ev.clientX), Math.min(y0, ev.clientY));
+    const b = clientToMap(Math.max(x0, ev.clientX), Math.max(y0, ev.clientY));
+    if (mode === 'groups') {
+      state.selectedGroupIds = state.map.groups
+        .filter((gr) => rectsIntersect(a.x, a.y, b.x, b.y, gr.x, gr.y, gr.x + gr.width, gr.y + gr.height))
+        .map((gr) => gr.id);
+    } else {
+      const ids = state.map.nodes
+        .filter((n) => rectsIntersect(a.x, a.y, b.x, b.y, n.x, n.y, n.x + n.width, n.y + n.height))
+        .map((n) => n.id);
+      state.selectedNodeIds = ids;
+      state.selectedNodeId = ids[ids.length - 1] || null;
+    }
+    nodes.renderAll();
+    groups.renderGroups();
+    updateMultiToolbar();
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
 }
 
 // --- Dvojklik na prázdnou plochu → nový kořenový uzel ---
@@ -261,7 +440,8 @@ async function selectMap(id) {
     map.nodes = map.nodes || [];
     map.edges = map.edges || [];
     map.groups = map.groups || [];
-    setState({ currentMapId: id, map, selectedNodeId: null });
+    setState({ currentMapId: id, map, selectedNodeId: null, selectedNodeIds: [], selectedGroupIds: [] });
+    updateMultiToolbar();
     panel.close();
     renderMap();
     stats.update();  // statistiky nově načtené mapy
@@ -300,7 +480,10 @@ function restoreState(snapshot) {
   state.map = JSON.parse(JSON.stringify(snapshot));
   state.selectedNodeId = null;
   state.selectedEdgeId = null;
+  state.selectedNodeIds = [];
+  state.selectedGroupIds = [];
   panel.close();
+  updateMultiToolbar();
   renderMap();
   autoSave();
 }
@@ -424,6 +607,7 @@ window.addEventListener('keydown', (e) => {
     if (pitch.isActive()) { pitch.exit(); return; }
     if (focus.isActive()) { focus.exit(); return; }
     if (drill.isActive()) { drill.pop(); return; }
+    if (state.selectedNodeIds.length || state.selectedGroupIds.length) { clearMultiSelect(); return; }
     panel.close();
     search.closeSearch();
     if (state.selectedNodeId || state.selectedEdgeId) {
@@ -451,8 +635,9 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') { e.preventDefault(); nodes.moveLevelDown(sel); return; }
   }
 
-  // Delete / Backspace — smaž vybraný uzel (hranu řeší edges.js)
+  // Delete / Backspace — smaž vybrané (multiselect má přednost), jinak vybraný uzel (hranu řeší edges.js)
   if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (state.selectedNodeIds.length >= 2 || state.selectedGroupIds.length) { e.preventDefault(); deleteSelected(); return; }
     if (sel) { e.preventDefault(); deleteNode(sel); }
     return;
   }

@@ -1,5 +1,5 @@
 // Service worker — cache-first pro shell, network-first pro /api/, offline fallback
-const CACHE = 'mindmap-v10';
+const CACHE = 'mindmap-v11';
 
 // Aplikační shell cachovaný při instalaci
 const SHELL = [

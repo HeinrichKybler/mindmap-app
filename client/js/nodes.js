@@ -1,5 +1,5 @@
 // Render uzlů jako SVG <g>, drag, resize, collapse, inline edit, přidávání potomků
-import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap } from './app.js';
+import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect } from './app.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
@@ -285,6 +285,13 @@ function drawNode(node) {
     }));
   }
 
+  // Multiselect: zvýraznění vybraného uzlu (amber border + glow)
+  if (getState().selectedNodeIds.includes(node.id)) {
+    rect.setAttribute('stroke', '#F59E0B');
+    rect.setAttribute('stroke-width', '2');
+    rect.style.filter = 'drop-shadow(0 0 6px #F59E0Baa)';
+  }
+
   // Výpočet okrajů pro label (kurzor zleva doprava)
   let leftPad = 10;
   let rightPad = 10;
@@ -443,26 +450,37 @@ function attachDrag(g, node) {
     if (e.target.classList.contains('resize-handle')) return;
     e.stopPropagation();
 
-    const scale = getState().viewTransform.scale;
+    const st = getState();
+    const shift = e.shiftKey;
+    const scale = st.viewTransform.scale;
     const startX = e.clientX, startY = e.clientY;
-    const origX = node.x, origY = node.y;
     let moved = false;
     let overTrash = false;
+    // Hromadný přesun: táhne-li se jeden z 2+ vybraných uzlů, jdou všechny spolu
+    const bulk = !shift && st.selectedNodeIds.includes(node.id) && st.selectedNodeIds.length >= 2;
+    const dragSet = bulk
+      ? st.selectedNodeIds.map((id) => getNode(id)).filter(Boolean).map((n) => ({ n, x: n.x, y: n.y }))
+      : [{ n: node, x: node.x, y: node.y }];
 
     const move = (ev) => {
       const dx = (ev.clientX - startX) / scale;
       const dy = (ev.clientY - startY) / scale;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
-      node.x = origX + dx;
-      node.y = origY + dy;
-      g.setAttribute('transform', `translate(${node.x},${node.y})`);
-      rerenderEdges();  // hrany sledují uzel
+      for (const m of dragSet) {
+        m.n.x = m.x + dx;
+        m.n.y = m.y + dy;
+        const ng = layer().querySelector(`[data-id="${m.n.id}"]`);
+        if (ng) ng.setAttribute('transform', `translate(${m.n.x},${m.n.y})`);
+      }
+      rerenderEdges();  // hrany sledují uzly
 
-      // Zvýraznění koše a cílové skupiny během tažení
-      overTrash = isOverTrash(ev.clientX, ev.clientY);
-      setTrashActive(overTrash);
-      const gr = overTrash ? null : groupAtPoint(node.x + node.width / 2, node.y + node.height / 2);
-      setGroupHighlight(gr ? gr.id : null);
+      // Zvýraznění koše a cílové skupiny během tažení (jen jednotlivý uzel)
+      if (!bulk) {
+        overTrash = isOverTrash(ev.clientX, ev.clientY);
+        setTrashActive(overTrash);
+        const gr = overTrash ? null : groupAtPoint(node.x + node.width / 2, node.y + node.height / 2);
+        setGroupHighlight(gr ? gr.id : null);
+      }
     };
     const up = () => {
       window.removeEventListener('mousemove', move);
@@ -470,24 +488,29 @@ function attachDrag(g, node) {
       setTrashActive(false);
       setGroupHighlight(null);
 
-      if (moved && overTrash) {
+      if (moved && overTrash && !bulk) {
         // Drop na koš → animované smazání uzlu i s potomky
         deleteNodeAnimated(node);
         return;
       }
       if (moved) {
-        // Příslušnost ke skupině podle středu uzlu (mimo = vytažení ven)
-        const gr = groupAtPoint(node.x + node.width / 2, node.y + node.height / 2);
-        if (gr) node.groupId = gr.id;
-        else delete node.groupId;
+        if (!bulk) {
+          // Příslušnost ke skupině podle středu uzlu (mimo = vytažení ven)
+          const gr = groupAtPoint(node.x + node.width / 2, node.y + node.height / 2);
+          if (gr) node.groupId = gr.id;
+          else delete node.groupId;
+        }
         pushHistory();
         autoSave();
+      } else if (shift) {
+        // Shift+klik bez pohybu = přidej/odeber uzel z multiselectu
+        toggleNodeSelect(node.id);
       } else if (edges.isConnectMode()) {
         // V propojovacím režimu klik vybírá uzly pro hranu
         edges.handleNodeClick(node);
       } else {
-        // Klik bez pohybu otevře detail panel; zruš případný výběr hrany,
-        // jinak by Delete smazal uzel I dříve vybranou hranu
+        // Klik bez pohybu otevře detail panel; zruš multiselect i výběr hrany
+        clearMultiSelect();
         getState().selectedNodeId = node.id;
         if (getState().selectedEdgeId) { getState().selectedEdgeId = null; rerenderEdges(); }
         panel.open(node);

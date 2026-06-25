@@ -1,6 +1,6 @@
 // Nativní kontextové menu (pravý klik) v SVG canvasu — uzel / hrana / skupina / prázdno.
 // Žádné browser default menu — contextmenu se vždy preventDefault.
-import { getState, addRootNodeAt, clientToMap, pushHistory, autoSave } from './app.js';
+import { getState, addRootNodeAt, clientToMap, pushHistory, autoSave, getSelectedNodeIds, getSelectedGroupIds, deleteSelected } from './app.js';
 import * as nodes from './nodes.js';
 import * as edges from './edges.js';
 import * as groups from './groups.js';
@@ -133,7 +133,13 @@ function focusBranch(node) {
 }
 
 function nodeMenu(node) {
+  const selCount = getSelectedNodeIds().length + getSelectedGroupIds().length;
+  // Pokud je multiselect (2+) a kliklo se na vybraný uzel, nabídni hromadné smazání nahoře
+  const bulk = (selCount >= 2 && getSelectedNodeIds().includes(node.id))
+    ? [{ label: `Smazat vybrané (${selCount})`, danger: true, action: () => deleteSelected() }, { sep: true }]
+    : [];
   return [
+    ...bulk,
     { label: 'Přejmenovat', action: () => renameNode(node) },
     { label: 'Přidat potomka', action: () => nodes.addChild(node) },
     { label: 'Duplikovat uzel', action: () => nodes.duplicateBranch(node) },

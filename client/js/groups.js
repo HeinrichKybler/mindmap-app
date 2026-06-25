@@ -1,5 +1,5 @@
 // Skupinové rámečky v #groups-layer — render, drag, resize, přidání
-import { getState, autoSave, pushHistory, getCanvasRect } from './app.js';
+import { getState, autoSave, pushHistory, getCanvasRect, toggleGroupSelect, clearMultiSelect } from './app.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
@@ -53,6 +53,13 @@ function drawGroup(group) {
   });
   g.appendChild(rect);
 
+  // Multiselect: zvýraznění vybrané skupiny (amber, plná čára)
+  if (getState().selectedGroupIds.includes(group.id)) {
+    rect.setAttribute('stroke', '#F59E0B');
+    rect.setAttribute('stroke-width', '2');
+    rect.setAttribute('stroke-dasharray', 'none');
+  }
+
   // Label vlevo nahoře
   const label = el('text', {
     class: 'group-label', x: 12, y: 18,
@@ -79,34 +86,41 @@ function attachDrag(g, group) {
     if (e.button !== 0) return;
     if (e.target.classList.contains('group-resize')) return;
     e.stopPropagation();
-    const scale = getState().viewTransform.scale;
+    const st = getState();
+    const ctrl = e.ctrlKey || e.metaKey;
+    const scale = st.viewTransform.scale;
     const startX = e.clientX, startY = e.clientY;
-    const origX = group.x, origY = group.y;
-    // Členové skupiny (uchovej výchozí pozice) — posunou se spolu se skupinou
-    const members = getState().map.nodes
-      .filter((n) => n.groupId === group.id)
-      .map((n) => ({ n, x: n.x, y: n.y }));
     let moved = false;
+    // Hromadný přesun: táhne-li se jedna z 2+ vybraných skupin, jdou všechny spolu
+    const bulk = !ctrl && st.selectedGroupIds.includes(group.id) && st.selectedGroupIds.length >= 2;
+    const dragGroups = bulk
+      ? st.selectedGroupIds.map((id) => groupsArr().find((gr) => gr.id === id)).filter(Boolean)
+      : [group];
+    // Pro každou taženou skupinu uchovej výchozí pozici i členské uzly
+    const sets = dragGroups.map((gr) => ({
+      gr, ox: gr.x, oy: gr.y,
+      members: st.map.nodes.filter((n) => n.groupId === gr.id).map((n) => ({ n, x: n.x, y: n.y })),
+    }));
 
     const move = (ev) => {
       const dx = (ev.clientX - startX) / scale;
       const dy = (ev.clientY - startY) / scale;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
-      group.x = origX + dx;
-      group.y = origY + dy;
-      g.setAttribute('transform', `translate(${group.x},${group.y})`);
-      // Posuň členské uzly o stejnou deltu
-      for (const m of members) {
-        m.n.x = m.x + dx;
-        m.n.y = m.y + dy;
-        const ng = document.querySelector(`#nodes-layer [data-id="${m.n.id}"]`);
-        if (ng) ng.setAttribute('transform', `translate(${m.n.x},${m.n.y})`);
+      for (const s of sets) {
+        s.gr.x = s.ox + dx;
+        s.gr.y = s.oy + dy;
+        const gg = layer().querySelector(`[data-id="${s.gr.id}"]`);
+        if (gg) gg.setAttribute('transform', `translate(${s.gr.x},${s.gr.y})`);
+        for (const m of s.members) {
+          m.n.x = m.x + dx;
+          m.n.y = m.y + dy;
+          const ng = document.querySelector(`#nodes-layer [data-id="${m.n.id}"]`);
+          if (ng) ng.setAttribute('transform', `translate(${m.n.x},${m.n.y})`);
+        }
       }
-      if (members.length) {
-        const map = getState().map;
-        edges.renderEdges(map.nodes, map.edges);   // hrany sledují uzly
-        canvas.updateMinimap(map.nodes, getState().viewTransform);
-      }
+      const map = st.map;
+      edges.renderEdges(map.nodes, map.edges);   // hrany sledují uzly
+      canvas.updateMinimap(map.nodes, st.viewTransform);
     };
     const up = () => {
       window.removeEventListener('mousemove', move);
@@ -114,6 +128,8 @@ function attachDrag(g, group) {
       if (moved) {
         pushHistory();
         autoSave();
+      } else if (ctrl) {
+        toggleGroupSelect(group.id);  // Ctrl+klik = přidej/odeber skupinu z multiselectu
       } else {
         panel.openGroup(group);  // klik bez pohybu otevře detail
       }
@@ -178,23 +194,34 @@ export function addGroupAt(cx, cy) { createGroup(cx, cy); }
 // --- Seskupení vybraného uzlu i s podstromem (Ctrl+G) ---
 export function groupSelected() {
   const st = getState();
-  const node = st.map.nodes.find((n) => n.id === st.selectedNodeId);
-  if (!node) { toast('Vyber uzel pro seskupení', 'info'); return; }
-  // Posbírej id uzlu a všech potomků
-  const ids = new Set();
-  const collect = (id) => {
-    ids.add(id);
-    st.map.nodes.filter((n) => n.parentId === id).forEach((c) => collect(c.id));
-  };
-  collect(node.id);
-  const members = st.map.nodes.filter((n) => ids.has(n.id));
+  let members, label;
+  if (st.selectedNodeIds && st.selectedNodeIds.length >= 2) {
+    // Multiselect: seskup přesně vybrané uzly
+    const sel = new Set(st.selectedNodeIds);
+    members = st.map.nodes.filter((n) => sel.has(n.id));
+    label = 'Skupina';
+  } else {
+    const node = st.map.nodes.find((n) => n.id === st.selectedNodeId);
+    if (!node) { toast('Vyber uzel pro seskupení', 'info'); return; }
+    // Posbírej id uzlu a všech potomků
+    const ids = new Set();
+    const collect = (id) => {
+      ids.add(id);
+      st.map.nodes.filter((n) => n.parentId === id).forEach((c) => collect(c.id));
+    };
+    collect(node.id);
+    members = st.map.nodes.filter((n) => ids.has(n.id));
+    label = node.label;
+  }
+  if (!members.length) return;
 
   // Bbox jen z viditelných uzlů (ne pod sbaleným předkem), ať rámeček sedí na to, co je vidět
   const byId = {};
   st.map.nodes.forEach((n) => { byId[n.id] = n; });
   const hidden = (n) => {
     let p = n.parentId ? byId[n.parentId] : null;
-    while (p) { if (p.collapsed) return true; p = p.parentId ? byId[p.parentId] : null; }
+    const seen = new Set([n.id]);  // ochrana proti cyklu v parentId
+    while (p && !seen.has(p.id)) { seen.add(p.id); if (p.collapsed) return true; p = p.parentId ? byId[p.parentId] : null; }
     return false;
   };
   const visible = members.filter((n) => !hidden(n));
@@ -210,7 +237,7 @@ export function groupSelected() {
   const pad = 30;
   const group = {
     id: crypto.randomUUID(),
-    label: node.label,
+    label,
     color: '#7C3AED',
     x: minX - pad, y: minY - pad,
     width: (maxX - minX) + pad * 2, height: (maxY - minY) + pad * 2,
@@ -218,6 +245,7 @@ export function groupSelected() {
   groupsArr().push(group);
   members.forEach((n) => { n.groupId = group.id; });
   renderGroups();
+  clearMultiSelect();  // po seskupení zruš multiselect (a překresli uzly bez amber borderu)
   pushHistory();
   autoSave();
 }
