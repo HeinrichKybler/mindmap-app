@@ -17,6 +17,30 @@ const EMOJI = ['📌', '🔥', '⚡', '💡', '🎯', '🔧', '🐛', '✅', '�
 const BORDERS = ['solid', 'dashed', 'dotted', 'double'];
 const PRIOS = [['high', '🔴'], ['medium', '🟡'], ['low', '🟢']];
 
+// Tvary uzlu — mini SVG náhledy (sekce 9)
+const NODE_SHAPES = [
+  ['rectangle', '<rect x="3" y="5" width="38" height="14" rx="3"/>'],
+  ['rounded', '<rect x="3" y="5" width="38" height="14" rx="7"/>'],
+  ['ellipse', '<ellipse cx="22" cy="12" rx="19" ry="8"/>'],
+  ['diamond', '<polygon points="22,3 41,12 22,21 3,12"/>'],
+  ['hexagon', '<polygon points="11,4 33,4 41,12 33,20 11,20 3,12"/>'],
+  ['cloud', '<path d="M14,18 C7,18 7,11 13,11 C12,5 22,4 23,9 C27,4 35,7 31,12 C36,12 35,18 29,18 Z"/>'],
+];
+
+// Barvy sticky komentářů (sekce 7)
+const COMMENT_COLORS = ['#F59E0B', '#3B82F6', '#059669', '#E24B4A'];
+let commentColor = COMMENT_COLORS[0];
+
+// Tvary skupin — mini SVG náhledy (sekce 4)
+const GROUP_SHAPES = [
+  ['rectangle', '<rect x="3" y="5" width="38" height="14" rx="3"/>'],
+  ['ellipse', '<ellipse cx="22" cy="12" rx="19" ry="8"/>'],
+  ['diamond', '<polygon points="22,3 41,12 22,21 3,12"/>'],
+  ['hexagon', '<polygon points="11,4 33,4 41,12 33,20 11,20 3,12"/>'],
+  ['cloud', '<path d="M14,18 C7,18 7,11 13,11 C12,5 22,4 23,9 C27,4 35,7 31,12 C36,12 35,18 29,18 Z"/>'],
+  ['custom', '<path d="M5,16 Q12,4 20,12 T38,8"/>'],
+];
+
 let current = null;      // aktuálně editovaný uzel
 let currentEdge = null;  // aktuálně editovaná hrana
 let currentGroup = null; // aktuálně editovaná skupina
@@ -81,6 +105,26 @@ let noteTimer = null;
     }
     #node-panel .p-style:hover { border-color: #7C3AED66; }
     #node-panel .p-style.sel { border-color: #fff; }
+    #node-panel .p-shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    #node-panel .p-shape { height: 32px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; border-radius: 6px; border: 1px solid #7C3AED22; background: #0a0a16; }
+    #node-panel .p-shape:hover { border-color: #7C3AED66; }
+    #node-panel .p-shape.sel { border-color: #fff; }
+    #node-panel .p-links { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+    #node-panel .p-link-row { display: flex; gap: 4px; align-items: center; }
+    #node-panel .p-link-row input { flex: 1 1 auto; padding: 5px 7px; font-size: 12px; min-width: 0; }
+    #node-panel .p-link-row .p-link-label { flex: 0 0 64px; }
+    #node-panel .p-link-row button { flex: 0 0 auto; width: 22px; height: 22px; color: #E24B4A;
+      background: transparent; border: none; cursor: pointer; font-size: 14px; }
+    #node-panel .p-comment-colors { display: flex; gap: 8px; margin: 6px 0; }
+    #node-panel .p-cc { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; box-sizing: border-box; }
+    #node-panel .p-cc.sel { border-color: #fff; }
+    #node-panel .p-comments { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    #node-panel .p-comment { display: flex; gap: 8px; padding: 7px 9px; border-radius: 6px; font-size: 12px;
+      background: #0a0a16; border-left: 3px solid #888; align-items: flex-start; }
+    #node-panel .p-comment .p-comment-text { flex: 1 1 auto; word-break: break-word; color: #d8d8e8; }
+    #node-panel .p-comment button { flex: 0 0 auto; background: transparent; border: none; cursor: pointer; color: #9a9ab0; font-weight: 700; }
+    #node-panel .p-comment button:hover { color: #E24B4A; }
     #node-panel input[type=range] { width: 100%; accent-color: #7C3AED; cursor: pointer; }
     #node-panel .p-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
     #node-panel .p-check input { accent-color: #7C3AED; cursor: pointer; }
@@ -156,6 +200,10 @@ function build() {
       <div class="p-styles" data-r="styles"></div>
     </div>
     <div class="p-section">
+      <label class="p-label">Tvar uzlu</label>
+      <div class="p-shapes" data-r="shapes"></div>
+    </div>
+    <div class="p-section">
       <label class="p-label">Průhlednost <span data-r="opacityVal"></span></label>
       <input type="range" min="20" max="100" step="5" data-r="opacity">
     </div>
@@ -176,8 +224,10 @@ function build() {
       <div class="p-warn" data-r="warn" style="display:none">Obrázek je příliš velký (max 2 MB)</div>
     </div>
     <div class="p-section">
-      <label class="p-label">GitHub</label>
-      <input type="url" data-r="github" placeholder="https://github.com/...">
+      <label class="p-label">Odkazy</label>
+      <input type="url" data-r="github" placeholder="GitHub: https://github.com/...">
+      <div class="p-links" data-r="links"></div>
+      <button class="p-btn add" data-r="addLink">+ Přidat odkaz</button>
     </div>
     <div class="p-section">
       <label class="p-label">Datum</label>
@@ -192,6 +242,13 @@ function build() {
         <label class="p-label" style="margin-top:10px">Postup <span data-r="taskProgVal"></span></label>
         <input type="range" min="0" max="100" step="5" data-r="taskProgress">
       </div>
+    </div>
+    <div class="p-section">
+      <label class="p-label">Komentáře</label>
+      <textarea rows="2" data-r="commentText" placeholder="Nový komentář…"></textarea>
+      <div class="p-comment-colors" data-r="commentColors"></div>
+      <button class="p-btn add" data-r="addComment">+ Přidat komentář</button>
+      <div class="p-comments" data-r="comments"></div>
     </div>
     <button class="p-btn add" data-r="addChild">+ Potomek</button>
     <button class="p-btn danger" data-r="delete">Smazat uzel</button>
@@ -218,6 +275,11 @@ function build() {
     <div class="p-section">
       <label class="p-label">Barva</label>
       <input type="color" data-r="groupColor">
+    </div>
+    <div class="p-section">
+      <label class="p-label">Tvar</label>
+      <div class="p-shapes" data-r="groupShapes"></div>
+      <button class="p-btn" data-r="groupDraw">✏ Nakreslit tvar</button>
     </div>
     <button class="p-btn danger" data-r="groupDelete">Smazat skupinu</button>
     </div>
@@ -276,6 +338,47 @@ function build() {
     b.addEventListener('click', () => setBorder(bs));
     refs.styles.appendChild(b);
   }
+
+  // Tvary uzlu (mini SVG preview)
+  for (const [name, inner] of NODE_SHAPES) {
+    const b = document.createElement('div');
+    b.className = 'p-shape'; b.dataset.shape = name;
+    b.innerHTML = `<svg width="44" height="24" viewBox="0 0 44 24" fill="none" stroke="#7C3AED" stroke-width="1.5">${inner}</svg>`;
+    b.addEventListener('click', () => setNodeShape(name));
+    refs.shapes.appendChild(b);
+  }
+
+  // Barvy komentářů (výběr aktivní barvy nového komentáře)
+  for (const col of COMMENT_COLORS) {
+    const d = document.createElement('div');
+    d.className = 'p-cc'; d.dataset.col = col; d.style.background = col;
+    d.addEventListener('click', () => { commentColor = col; renderCommentColors(); });
+    refs.commentColors.appendChild(d);
+  }
+  renderCommentColors();
+
+  // Odkazy — přidání nového prázdného řádku
+  refs.addLink.addEventListener('click', () => {
+    if (!current) return;
+    if (!Array.isArray(current.links)) current.links = [];
+    current.links.push({ url: '', label: '' });
+    renderLinks();
+    autoSave();
+  });
+
+  // Komentáře — přidání nového
+  refs.addComment.addEventListener('click', () => {
+    if (!current) return;
+    const text = refs.commentText.value.trim();
+    if (!text) return;
+    if (!Array.isArray(current.comments)) current.comments = [];
+    current.comments.push({ id: crypto.randomUUID(), text, createdAt: new Date().toISOString(), color: commentColor });
+    refs.commentText.value = '';
+    renderComments();
+    nodes.refresh(current);  // ukáže 💬 na uzlu
+    pushHistory();
+    autoSave();
+  });
 
   // Průhlednost — živý preview přes input, jeden undo krok na release (change)
   refs.opacity.addEventListener('input', () => {
@@ -411,6 +514,17 @@ function build() {
     groups.renderGroups();
     autoSave();
   });
+
+  // Tvary skupiny (mini SVG preview) + kreslení vlastního tvaru
+  for (const [name, inner] of GROUP_SHAPES) {
+    const b = document.createElement('div');
+    b.className = 'p-shape'; b.dataset.shape = name;
+    b.innerHTML = `<svg width="44" height="24" viewBox="0 0 44 24" fill="none" stroke="#7C3AED" stroke-width="1.5">${inner}</svg>`;
+    b.addEventListener('click', () => setGroupShape(name));
+    refs.groupShapes.appendChild(b);
+  }
+  refs.groupDraw.addEventListener('click', () => { if (currentGroup) groups.startCustomDraw(currentGroup); });
+
   refs.groupDelete.addEventListener('click', () => {
     if (!currentGroup) return;
     groups.removeGroup(currentGroup.id);
@@ -435,11 +549,14 @@ export function open(node) {
   renderColors();
   renderIcons();
   renderStyles();
+  renderShapes();
   refs.opacity.value = Math.round((node.opacity == null ? 1 : node.opacity) * 100);
   refs.opacityVal.textContent = refs.opacity.value + '%';
   renderTask();
   renderTags();
   renderPreview();
+  renderLinks();
+  renderComments();
   root.classList.add('open');
 }
 
@@ -467,6 +584,7 @@ export function openGroup(group) {
   refs.groupBody.style.display = '';
   refs.groupName.value = group.label || '';
   refs.groupColor.value = group.color || '#7C3AED';
+  renderGroupShapes();
   root.classList.add('open');
 }
 
@@ -540,6 +658,72 @@ function renderStyles() {
   const cur = current.borderStyle || 'solid';
   refs.styles.querySelectorAll('.p-style').forEach((d) => {
     d.classList.toggle('sel', d.dataset.style === cur);
+  });
+}
+
+// --- Tvar uzlu (sekce 9) ---
+function setNodeShape(shape) {
+  if (!current) return;
+  current.shape = shape;
+  renderShapes();
+  nodes.refresh(current);
+  pushHistory();
+  autoSave();
+}
+function renderShapes() {
+  const cur = current.shape || 'rectangle';
+  refs.shapes.querySelectorAll('.p-shape').forEach((d) => d.classList.toggle('sel', d.dataset.shape === cur));
+}
+
+// --- Tvar skupiny (sekce 4) ---
+function setGroupShape(name) {
+  if (!currentGroup) return;
+  if (name === 'custom' && !currentGroup.customPath) { groups.startCustomDraw(currentGroup); return; }
+  currentGroup.shape = name;
+  renderGroupShapes();
+  groups.renderGroups();
+  pushHistory();
+  autoSave();
+}
+function renderGroupShapes() {
+  const cur = (currentGroup && currentGroup.shape) || 'rectangle';
+  refs.groupShapes.querySelectorAll('.p-shape').forEach((d) => d.classList.toggle('sel', d.dataset.shape === cur));
+}
+
+// --- Odkazy (node.links, sekce 2) ---
+function renderLinks() {
+  refs.links.innerHTML = '';
+  const links = current.links || [];
+  links.forEach((lnk, i) => {
+    const row = document.createElement('div'); row.className = 'p-link-row';
+    const label = document.createElement('input');
+    label.className = 'p-link-label'; label.type = 'text'; label.placeholder = 'popisek'; label.value = lnk.label || '';
+    const url = document.createElement('input');
+    url.type = 'url'; url.placeholder = 'https://…'; url.value = lnk.url || '';
+    label.addEventListener('input', () => { lnk.label = label.value; clearTimeout(noteTimer); noteTimer = setTimeout(autoSave, 500); });
+    url.addEventListener('input', () => { lnk.url = url.value.trim(); clearTimeout(noteTimer); noteTimer = setTimeout(autoSave, 500); });
+    const rm = document.createElement('button'); rm.textContent = '×'; rm.title = 'Odebrat';
+    rm.addEventListener('click', () => { current.links.splice(i, 1); renderLinks(); pushHistory(); autoSave(); });
+    row.appendChild(label); row.appendChild(url); row.appendChild(rm);
+    refs.links.appendChild(row);
+  });
+}
+
+// --- Komentáře (sekce 7) ---
+function renderCommentColors() {
+  refs.commentColors.querySelectorAll('.p-cc').forEach((d) => d.classList.toggle('sel', d.dataset.col === commentColor));
+}
+function renderComments() {
+  refs.comments.innerHTML = '';
+  const list = current.comments || [];
+  list.forEach((cm, i) => {
+    const card = document.createElement('div'); card.className = 'p-comment';
+    card.style.borderLeftColor = cm.color || '#888';
+    const txt = document.createElement('span'); txt.className = 'p-comment-text'; txt.textContent = cm.text;
+    const rm = document.createElement('button'); rm.textContent = '×'; rm.title = 'Smazat';
+    rm.addEventListener('click', () => { current.comments.splice(i, 1); renderComments(); nodes.refresh(current); pushHistory(); autoSave(); });
+    card.appendChild(txt); card.appendChild(rm);
+    refs.comments.appendChild(card);
   });
 }
 

@@ -1,5 +1,5 @@
 // Skupinové rámečky v #groups-layer — render, drag, resize, přidání
-import { getState, autoSave, pushHistory, getCanvasRect, toggleGroupSelect, clearMultiSelect } from './app.js';
+import { getState, autoSave, pushHistory, getCanvasRect, toggleGroupSelect, clearMultiSelect, isEditMode, clientToMap } from './app.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
@@ -33,6 +33,31 @@ function el(tag, attrs = {}) {
 function groupsArr() { return getState().map.groups; }
 function layer() { return document.getElementById('groups-layer'); }
 
+// Aproximace mraku jako SVG path v rámci w×h
+function cloudPath(w, h) {
+  const x = (p) => (p * w).toFixed(1), y = (p) => (p * h).toFixed(1);
+  return `M ${x(0.25)} ${y(0.85)} C ${x(0.05)} ${y(0.85)} ${x(0.05)} ${y(0.52)} ${x(0.22)} ${y(0.5)} `
+    + `C ${x(0.18)} ${y(0.18)} ${x(0.5)} ${y(0.1)} ${x(0.56)} ${y(0.33)} `
+    + `C ${x(0.72)} ${y(0.12)} ${x(0.97)} ${y(0.26)} ${x(0.82)} ${y(0.5)} `
+    + `C ${x(0.99)} ${y(0.54)} ${x(0.97)} ${y(0.85)} ${x(0.78)} ${y(0.85)} Z`;
+}
+
+// Tělo skupiny jako SVG element dle group.shape (sekce 4)
+function groupShapeBody(group) {
+  const w = group.width, h = group.height;
+  const base = { fill: group.color + '10', stroke: group.color + '66', 'stroke-width': 1.5, 'stroke-dasharray': '6 3' };
+  const shape = group.shape || 'rectangle';
+  if (shape === 'ellipse') return el('ellipse', { cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2, ...base });
+  if (shape === 'diamond') return el('polygon', { points: `${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`, ...base });
+  if (shape === 'hexagon') {
+    const i = Math.min(w * 0.2, h * 0.5);
+    return el('polygon', { points: `${i},0 ${w - i},0 ${w},${h / 2} ${w - i},${h} ${i},${h} 0,${h / 2}`, ...base });
+  }
+  if (shape === 'cloud') return el('path', { d: cloudPath(w, h), ...base });
+  if (shape === 'custom' && group.customPath) return el('path', { d: group.customPath, ...base });
+  return el('rect', { x: 0, y: 0, width: w, height: h, rx: 12, ...base });
+}
+
 // Překreslí celý #groups-layer
 export function renderGroups() {
   const lyr = layer();
@@ -45,12 +70,8 @@ export function renderGroups() {
 function drawGroup(group) {
   const g = el('g', { class: 'group', 'data-id': group.id, transform: `translate(${group.x},${group.y})` });
 
-  // Rámeček
-  const rect = el('rect', {
-    x: 0, y: 0, width: group.width, height: group.height, rx: 12,
-    fill: group.color + '10', stroke: group.color + '66',
-    'stroke-width': 1.5, 'stroke-dasharray': '6 3',
-  });
+  // Rámeček dle tvaru (rectangle/ellipse/diamond/hexagon/cloud/custom)
+  const rect = groupShapeBody(group);
   g.appendChild(rect);
 
   // Multiselect: zvýraznění vybrané skupiny (amber, plná čára)
@@ -85,6 +106,7 @@ function attachDrag(g, group) {
   g.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     if (e.target.classList.contains('group-resize')) return;
+    if (!isEditMode()) return;  // View mode: skupiny nejsou interaktivní (jen pozadí)
     e.stopPropagation();
     const st = getState();
     const ctrl = e.ctrlKey || e.metaKey;
@@ -173,6 +195,7 @@ async function createGroup(cx, cy) {
     id: crypto.randomUUID(),
     label: name.trim() || 'Skupina',
     color: '#7C3AED',
+    shape: 'rectangle',
     x: cx - 100, y: cy - 75, width: 200, height: 150,
   };
   groupsArr().push(group);
@@ -261,6 +284,60 @@ export function removeGroup(id) {
   renderGroups();
   pushHistory();
   autoSave();
+}
+
+// --- Freehand kreslení vlastního tvaru skupiny (sekce 4) ---
+// Body (mapové souřadnice) → SVG path
+function pointsToPath(pts, close) {
+  if (!pts.length) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  return d + (close ? ' Z' : '');
+}
+
+// Aktivuje režim kreslení: jedním tahem nakreslí tvar, uloží do group.customPath (lokální souřadnice)
+export function startCustomDraw(group) {
+  const svg = document.getElementById('canvas');
+  if (!svg) return;
+  toast('Nakresli tvar tažením myši', 'info');
+  svg.style.cursor = 'crosshair';
+  let pts = [];
+  let preview = null;
+
+  const down = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    pts = [clientToMap(e.clientX, e.clientY)];
+    preview = el('path', { fill: group.color + '20', stroke: group.color, 'stroke-width': 1.5 });
+    layer().appendChild(preview);
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+  };
+  const mv = (e) => {
+    pts.push(clientToMap(e.clientX, e.clientY));
+    if (preview) preview.setAttribute('d', pointsToPath(pts, false));
+  };
+  const up = () => {
+    window.removeEventListener('mousemove', mv);
+    window.removeEventListener('mouseup', up);
+    svg.removeEventListener('mousedown', down, true);
+    svg.style.cursor = '';
+    if (preview) preview.remove();
+    if (pts.length < 3) { toast('Tvar je příliš malý', 'error'); return; }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
+    const local = pts.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+    group.customPath = pointsToPath(local, true);
+    group.shape = 'custom';
+    group.x = minX; group.y = minY;
+    group.width = Math.max(MIN_W, maxX - minX);
+    group.height = Math.max(MIN_H, maxY - minY);
+    renderGroups();
+    pushHistory();
+    autoSave();
+    toast('Tvar uložen', 'success');
+  };
+  svg.addEventListener('mousedown', down, true);  // capture: předběhne pan/rubber band
 }
 
 // Připojení tlačítka v toolbaru

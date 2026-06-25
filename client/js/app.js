@@ -16,6 +16,9 @@ import * as pitch from './pitch.js';
 import * as drill from './drill.js';
 import * as stats from './stats.js';
 import * as settings from './settings.js';
+import * as detail from './detail.js';
+import * as floatingToolbar from './floating-toolbar.js';
+import * as palette from './command-palette.js';
 import { toast } from './toast.js';
 import './export.js';
 import './context-menu.js';
@@ -45,10 +48,73 @@ const state = {
   taskFilter: false,   // zobrazit jen uzly s task.enabled
   selectedNodeIds: [],   // multiselect uzlů (Shift+klik / rubber band)
   selectedGroupIds: [],  // multiselect skupin (Ctrl+klik / Ctrl+Shift rubber band)
+  editMode: false,     // false = View mode (výchozí, čistý), true = Edit mode (sekce 1)
 };
 
 export function getState() { return state; }
 export function setState(patch) { Object.assign(state, patch); }
+
+// --- View / Edit mode (sekce 1) ---
+let viewBanner = null;
+
+(function injectModeStyles() {
+  if (document.getElementById('mode-style')) return;
+  const s = document.createElement('style');
+  s.id = 'mode-style';
+  s.textContent = `
+    body.view-mode .resize-handle,
+    body.view-mode .node .collapse-btn,
+    body.view-mode .group-resize { display: none !important; }
+    body.view-mode #node-panel { display: none !important; }
+    body.view-mode .tb-edit-only { display: none !important; }
+    body.view-mode #canvas { cursor: default; }
+    #view-banner { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      z-index: 42; margin-top: 8px; padding: 5px 14px;
+      background: #7C3AED22; border: 1px solid #7C3AED44; border-radius: 999px;
+      font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #c8b8f0;
+      user-select: none; pointer-events: none; white-space: nowrap; }
+    #mode-btn.edit-on { background: #7C3AED; color: #fff; border-color: #7C3AED; }`;
+  document.head.appendChild(s);
+})();
+
+export function isEditMode() { return state.editMode; }
+
+// Aplikuje aktuální režim na DOM (třídy, banner, tlačítka, plovoucí toolbar)
+function applyMode() {
+  const on = state.editMode;
+  document.body.classList.toggle('view-mode', !on);
+  document.body.classList.toggle('edit-mode', on);
+  const btn = document.getElementById('mode-btn');
+  if (btn) {
+    btn.textContent = on ? '✏' : '👁';
+    btn.classList.toggle('edit-on', on);
+    btn.title = on ? 'Edit mode — E pro View' : 'View mode — E pro Edit';
+  }
+  const wrap = document.getElementById('canvas-wrap');
+  if (!on) {
+    if (!viewBanner && wrap) {
+      viewBanner = document.createElement('div');
+      viewBanner.id = 'view-banner';
+      viewBanner.textContent = 'View mode — stiskni E pro editaci';
+      wrap.appendChild(viewBanner);
+    }
+  } else if (viewBanner) { viewBanner.remove(); viewBanner = null; }
+  floatingToolbar.setVisible(on);
+}
+
+export function setEditMode(on) {
+  on = !!on;
+  if (state.editMode === on) return;
+  state.editMode = on;
+  if (!on) { panel.close(); clearMultiSelect(); }   // View: zavři editační panel a výběr
+  else { detail.close(); }                           // Edit: zavři read-only detail okno
+  applyMode();
+}
+
+export function toggleEditMode() { setEditMode(!state.editMode); }
+
+// Klik na uzel ve View mode → read-only detail okno (volá nodes.js)
+export function openNodeDetail(node) { detail.open(node); }
 
 // Výchozí barva nového kořenového uzlu (z nastavení)
 let defaultNodeColor = 'purple';
@@ -417,9 +483,10 @@ function updateMapBreadcrumb() {
   });
 }
 
-// --- Dvojklik na prázdnou plochu → nový kořenový uzel ---
+// --- Dvojklik na prázdnou plochu → nový kořenový uzel (jen v edit mode) ---
 svg.addEventListener('dblclick', (e) => {
   if (e.target !== svg && e.target !== gridBg) return;
+  if (!state.editMode) return;  // View mode = žádné vytváření uzlů
   if (edges.isConnectMode()) return;
   addRootNodeAt(e.clientX, e.clientY);
 });
@@ -656,6 +723,9 @@ window.addEventListener('keydown', (e) => {
   // ať se mapa pod prezentačním overlayem nemění
   if (pitch.isActive()) return;
 
+  // Read-only detail okno / command palette si řeší klávesy samy (Escape přes vlastní listener)
+  if (detail.isOpen() || palette.isOpen()) return;
+
   // Otevřený modal (Nastavení / Cheatsheet) pohlcuje mapové zkratky — projde jen jeho zavření,
   // ať se mapa pod overlayem nemění (Delete/Tab/Enter/Space/… by jinak prošly)
   if (settings.isOpen() || cheatsheet.isOpen()) {
@@ -678,6 +748,7 @@ window.addEventListener('keydown', (e) => {
     if (k === 'g') { e.preventDefault(); groups.groupSelected(); return; }
     if (k === 'l') { e.preventDefault(); edges.toggleConnectMode(); return; }
     if (k === 'm') { e.preventDefault(); toggleMinimap(); return; }
+    if (k === 'p' && e.shiftKey) { e.preventDefault(); palette.open(); return; }  // Ctrl+Shift+P
     if (k === 'p') { e.preventDefault(); pitch.toggle(); return; }
     if (k === 's') { e.preventDefault(); autoSave(); return; }
     if (k === 'b') {
@@ -695,6 +766,9 @@ window.addEventListener('keydown', (e) => {
 
   // ? — cheatsheet zkratek
   if (e.key === '?') { e.preventDefault(); cheatsheet.toggle(); return; }
+
+  // E — přepnout View / Edit mode (sekce 1)
+  if (e.key === 'e' || e.key === 'E') { e.preventDefault(); toggleEditMode(); return; }
 
   // Escape — postupně zavírá módy/overlay, pak panel a výběr
   if (e.key === 'Escape') {
@@ -904,8 +978,13 @@ if (numberBtn) numberBtn.addEventListener('click', () => {
   autoSave();
 });
 
+// --- View/Edit mode tlačítko ---
+const modeBtn = document.getElementById('mode-btn');
+if (modeBtn) modeBtn.addEventListener('click', () => toggleEditMode());
+
 // --- Inicializace ---
 applyTransform();
 updateHistoryButtons();
+applyMode();  // výchozí View mode (banner, skryté editační prvky)
 sidebar.init(selectMap, goToNode);
 settings.load();

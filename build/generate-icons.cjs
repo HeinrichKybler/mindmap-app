@@ -6,9 +6,8 @@ const path = require('path');
 
 const BUILD_DIR = __dirname;
 
-// Tmavé pozadí, fialový kruh, bílé "M"
+// Průhledné pozadí, fialový kruh, bílé "M" (bez čtvercového pozadí)
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#0d0d1a"/>
   <circle cx="256" cy="256" r="200" fill="#7C3AED"/>
   <path d="M176,340 L176,172 L256,284 L336,172 L336,340"
         fill="none" stroke="#ffffff" stroke-width="36"

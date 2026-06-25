@@ -30,7 +30,7 @@ function safeName(name) {
 }
 
 // --- PNG export ---
-async function exportPNG() {
+export async function exportPNG() {
   const domtoimage = window.domtoimage;
   if (!domtoimage) { toast('Knihovna pro PNG není načtena', 'error'); return; }
 
@@ -74,7 +74,7 @@ async function exportPNG() {
 }
 
 // --- JSON export ---
-function exportJSON() {
+export function exportJSON() {
   const map = getState().map;
   const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -171,7 +171,7 @@ function mapToMarkdown(map) {
   roots.forEach((r) => walk(r, 0));
   return out;
 }
-function exportMarkdown() {
+export function exportMarkdown() {
   const map = getState().map;
   const blob = new Blob([mapToMarkdown(map)], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
@@ -298,6 +298,93 @@ async function onMarkdownFile(e) {
 }
 function importMarkdown() { ensureMdInput().click(); }
 
+// --- Export vybrané větve (sekce 10) ---
+// Posbírá vybraný uzel + všechny potomky rekurzivně
+function collectBranch(map, rootId) {
+  const ids = new Set();
+  const walk = (id) => { ids.add(id); map.nodes.filter((n) => n.parentId === id).forEach((c) => walk(c.id)); };
+  walk(rootId);
+  const nodes = map.nodes.filter((n) => ids.has(n.id));
+  const edges = (map.edges || []).filter((e) => ids.has(e.fromId) && ids.has(e.toId));
+  return { ids, nodes, edges };
+}
+
+function selectedNode() {
+  const map = getState().map;
+  return map.nodes.find((n) => n.id === getState().selectedNodeId);
+}
+
+function exportBranchJSON() {
+  const map = getState().map;
+  const sel = selectedNode();
+  if (!sel) { toast('Vyber uzel pro export větve', 'info'); return; }
+  const { nodes, edges } = collectBranch(map, sel.id);
+  const sub = { name: `${map.name} - ${sel.label}`, nodes, edges, groups: [] };
+  const blob = new Blob([JSON.stringify(sub, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  download(url, `vetev-${safeName(sel.label)}.json`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Větev (JSON) uložena', 'success');
+}
+
+function exportBranchMarkdown() {
+  const map = getState().map;
+  const sel = selectedNode();
+  if (!sel) { toast('Vyber uzel pro export větve', 'info'); return; }
+  const { nodes, edges } = collectBranch(map, sel.id);
+  const blob = new Blob([mapToMarkdown({ name: sel.label, nodes, edges })], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  download(url, `vetev-${safeName(sel.label)}.md`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Větev (Markdown) uložena', 'success');
+}
+
+async function exportBranchPNG() {
+  const domtoimage = window.domtoimage;
+  if (!domtoimage) { toast('Knihovna pro PNG není načtena', 'error'); return; }
+  const map = getState().map;
+  const sel = selectedNode();
+  if (!sel) { toast('Vyber uzel pro export větve', 'info'); return; }
+  const { ids, nodes, edges } = collectBranch(map, sel.id);
+  if (!nodes.length) return;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height);
+  }
+  const pad = 40;
+  const w = Math.ceil(maxX - minX + pad * 2);
+  const h = Math.ceil(maxY - minY + pad * 2);
+
+  const svg = document.getElementById('canvas');
+  const panGroup = document.getElementById('pan-group');
+  const gridBg = document.getElementById('grid-bg');
+  const edgeIds = new Set(edges.map((e) => e.id));
+  const hidden = [];
+  const hide = (elm) => { hidden.push([elm, elm.style.display]); elm.style.display = 'none'; };
+  // Skryj uzly/hrany mimo větev + všechny skupiny
+  document.querySelectorAll('#nodes-layer [data-id]').forEach((gEl) => { if (!ids.has(gEl.getAttribute('data-id'))) hide(gEl); });
+  document.querySelectorAll('#edges-layer [data-id]').forEach((gEl) => { if (!edgeIds.has(gEl.getAttribute('data-id'))) hide(gEl); });
+  document.querySelectorAll('#groups-layer [data-id]').forEach((gEl) => hide(gEl));
+
+  panGroup.setAttribute('transform', `translate(${-minX + pad},${-minY + pad}) scale(1)`);
+  const gridDisplay = gridBg.style.display;
+  gridBg.style.display = 'none';
+  try {
+    const dataUrl = await domtoimage.toPng(svg, { width: w, height: h, bgcolor: '#0d0d1a' });
+    download(dataUrl, `vetev-${safeName(sel.label)}-${today()}.png`);
+    toast('Větev (PNG) uložena', 'success');
+  } catch (err) {
+    toast('Export větve selhal', 'error');
+    console.error('Export větve PNG selhal:', err);
+  } finally {
+    for (const [elm, disp] of hidden) elm.style.display = disp;
+    gridBg.style.display = gridDisplay;
+    applyTransform();
+  }
+}
+
 // --- Dropdown menu v toolbaru (sdílí styl .tb-menu) ---
 function openExportMenu(btn, items) {
   document.querySelectorAll('.tb-menu.export-menu').forEach((m) => m.remove());
@@ -323,7 +410,10 @@ const exportBtn = document.getElementById('export-btn');
 const importBtn = document.getElementById('import-btn');
 if (exportBtn) exportBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  openExportMenu(exportBtn, [['PNG', exportPNG], ['JSON', exportJSON], ['Markdown', exportMarkdown], ['OPML', exportOPML], ['SVG', exportSVG]]);
+  openExportMenu(exportBtn, [
+    ['PNG', exportPNG], ['JSON', exportJSON], ['Markdown', exportMarkdown], ['OPML', exportOPML], ['SVG', exportSVG],
+    ['Větev → PNG', exportBranchPNG], ['Větev → JSON', exportBranchJSON], ['Větev → Markdown', exportBranchMarkdown],
+  ]);
 });
 if (importBtn) importBtn.addEventListener('click', (e) => {
   e.stopPropagation();

@@ -105,13 +105,21 @@ const state = {
   },
   selectedNodeId: null,
   selectedEdgeId: null,
-  selectedGroupId: null,
+  selectedNodeIds: [],     // multiselect uzlů
+  selectedGroupIds: [],    // multiselect skupin
   viewTransform: { x: 0, y: 0, scale: 1 },
-  isDirty: false,          // neuložené změny
-  isConnecting: false,     // propojovací režim
-  connectFromId: null,
+  taskFilter: false,
+  editMode: false,         // false = View mode (výchozí, read-only detail okno), true = Edit mode
 };
 ```
+
+**View / Edit mode (sekce 1, v1.1.0):** výchozí stav je View mode — skryté editační prvky (resize handles, collapse šipky, group handles, pravý panel, editační toolbar tlačítka `.tb-edit-only`), klik na uzel otevře read-only detail okno (`detail.js`). Edit mode (klávesa `E` / 👁✏ tlačítko) zapne plnou editaci + plovoucí toolbar (`floating-toolbar.js`).
+
+**Nová pole datového modelu (v1.1.0):**
+- uzel: `links: [{ url, label }]`, `comments: [{ id, text, createdAt, color }]`, `shape: 'rectangle'|'rounded'|'ellipse'|'diamond'|'hexagon'|'cloud'`, `locked: false`
+- skupina: `shape: 'rectangle'|'ellipse'|'diamond'|'hexagon'|'cloud'|'custom'`, `customPath` (SVG path pro custom tvar, lokální souřadnice)
+
+Server PUT pole nevaliduje jmenovitě (jen typy nodes/edges/groups), nová pole tedy projdou beze změny serveru. Nové frontend moduly: `detail.js`, `floating-toolbar.js`, `command-palette.js`, `markdown.js`.
 
 **Pravidlo:** Žádný jiný modul nemá vlastní kopii `nodes[]` ani `edges[]`.
 Vždy čtou z `app.getState().map.nodes` a zapisují přes `app.setState(patch)`.
@@ -156,6 +164,8 @@ C:\Users\User\Documents\MindMap\
 
 | Zkratka | Akce | Modul |
 |---------|------|-------|
+| E | Přepnout View / Edit mode | app.js |
+| Ctrl+Shift+P | Command palette (fuzzy příkazy) | command-palette.js |
 | Ctrl+Z | Undo | history.js |
 | Ctrl+Y / Ctrl+Shift+Z | Redo | history.js |
 | Ctrl+F | Hledání | search.js |

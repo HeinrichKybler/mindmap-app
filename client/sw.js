@@ -1,5 +1,5 @@
 // Service worker — cache-first pro shell, network-first pro /api/, offline fallback
-const CACHE = 'mindmap-v15';
+const CACHE = 'mindmap-v16';
 
 // Aplikační shell cachovaný při instalaci
 const SHELL = [
@@ -32,6 +32,10 @@ const SHELL = [
   '/js/settings.js',
   '/js/prompt.js',
   '/js/references.js',
+  '/js/markdown.js',
+  '/js/detail.js',
+  '/js/floating-toolbar.js',
+  '/js/command-palette.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ];

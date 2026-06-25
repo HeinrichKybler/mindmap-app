@@ -1,5 +1,5 @@
 // Render uzlů jako SVG <g>, drag, resize, collapse, inline edit, přidávání potomků
-import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap, goToNode, goToMap } from './app.js';
+import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap, goToNode, goToMap, isEditMode, openNodeDetail } from './app.js';
 import { openReferenceModal } from './references.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
@@ -36,6 +36,7 @@ function el(tag, attrs = {}) {
     .node { cursor: pointer; }
     .node .resize-handle { opacity: 0; transition: opacity .12s; cursor: nwse-resize; }
     .node:hover .resize-handle { opacity: 1; }
+    .node.locked .resize-handle { display: none; }
     .node .collapse-btn, .node .gh-icon { cursor: pointer; }
     .node-edit-input {
       position: fixed; z-index: 100; box-sizing: border-box;
@@ -66,6 +67,10 @@ export function makeNode(props = {}) {
     isSummary: false,
     linkedMapId: null,   // odkaz na podmapovou mapu (sekce 2)
     references: [],      // cross-reference na jiné uzly/skupiny (sekce 3)
+    links: [],           // libovolné odkazy [{ url, label }] (sekce 2)
+    comments: [],        // sticky komentáře [{ id, text, createdAt, color }] (sekce 7)
+    shape: 'rectangle',  // tvar uzlu (sekce 9)
+    locked: false,       // zamčený uzel nelze táhnout/resizovat (sekce 3)
     task: { enabled: false, checked: false, priority: null, dueDate: null, progress: 0 },
     collapsed: false,
     createdAt: new Date().toISOString(),
@@ -255,6 +260,29 @@ function deleteNodeAnimated(node) {
 // Barvy progress baru dle priority tasku
 const PRIO_COLOR = { high: '#E24B4A', medium: '#F59E0B', low: '#059669' };
 
+// Aproximace mraku jako SVG path v rámci w×h
+function cloudPath(w, h) {
+  const x = (p) => (p * w).toFixed(1), y = (p) => (p * h).toFixed(1);
+  return `M ${x(0.25)} ${y(0.85)} C ${x(0.05)} ${y(0.85)} ${x(0.05)} ${y(0.52)} ${x(0.22)} ${y(0.5)} `
+    + `C ${x(0.18)} ${y(0.18)} ${x(0.5)} ${y(0.1)} ${x(0.56)} ${y(0.33)} `
+    + `C ${x(0.72)} ${y(0.12)} ${x(0.97)} ${y(0.26)} ${x(0.82)} ${y(0.5)} `
+    + `C ${x(0.99)} ${y(0.54)} ${x(0.97)} ${y(0.85)} ${x(0.78)} ${y(0.85)} Z`;
+}
+
+// Tělo uzlu jako SVG element dle node.shape (sekce 9)
+function shapeBody(shape, w, h, c) {
+  const base = { fill: c.fill, stroke: c.stroke, 'stroke-width': 1.5 };
+  if (shape === 'ellipse') return el('ellipse', { cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2, ...base });
+  if (shape === 'diamond') return el('polygon', { points: `${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`, ...base });
+  if (shape === 'hexagon') {
+    const i = Math.min(w * 0.22, h * 0.5);
+    return el('polygon', { points: `${i},0 ${w - i},0 ${w},${h / 2} ${w - i},${h} ${i},${h} 0,${h / 2}`, ...base });
+  }
+  if (shape === 'rounded') return el('rect', { x: 0, y: 0, width: w, height: h, rx: h / 2, ...base });
+  if (shape === 'cloud') return el('path', { d: cloudPath(w, h), ...base });
+  return el('rect', { x: 0, y: 0, width: w, height: h, rx: 10, ...base });  // rectangle (výchozí)
+}
+
 // Sestaví <g> jednoho uzlu
 function drawNode(node) {
   const c = nodeColors(node);
@@ -265,24 +293,23 @@ function drawNode(node) {
   const task = node.task || {};
   const checked = !!(task.enabled && task.checked);
 
-  const g = el('g', { class: 'node', 'data-id': node.id, transform: `translate(${node.x},${node.y})` });
+  const g = el('g', { class: 'node' + (node.locked ? ' locked' : ''), 'data-id': node.id, transform: `translate(${node.x},${node.y})` });
   // Průhlednost uzlu (vlastní opacity × ztlumení při splněném tasku)
   const op = (node.opacity == null ? 1 : node.opacity) * (checked ? 0.6 : 1);
   if (op < 1) g.setAttribute('opacity', op);
 
-  // Tělo uzlu — styl hranice dle node.borderStyle
+  // Tělo uzlu — tvar dle node.shape, styl hranice dle node.borderStyle
+  const shape = node.shape || 'rectangle';
+  const boxy = shape === 'rectangle' || shape === 'rounded';  // vnitřní rámečky jen u hranatých tvarů
   const dash = node.borderStyle === 'dashed' ? '6 3'
     : node.borderStyle === 'dotted' ? '2 3' : null;
-  const rect = el('rect', {
-    x: 0, y: 0, width: w, height: h, rx: 10,
-    fill: c.fill, stroke: c.stroke, 'stroke-width': 1.5,
-  });
+  const rect = shapeBody(shape, w, h, c);
   if (dash) rect.setAttribute('stroke-dasharray', dash);
   rect.style.filter = `drop-shadow(0 0 6px ${c.glow}66)`;
   g.appendChild(rect);
 
-  // double = vnitřní rámeček o 3px menší
-  if (node.borderStyle === 'double') {
+  // double = vnitřní rámeček o 3px menší (jen hranaté tvary)
+  if (node.borderStyle === 'double' && boxy) {
     g.appendChild(el('rect', {
       x: 3, y: 3, width: w - 6, height: h - 6, rx: 8,
       fill: 'none', stroke: c.stroke, 'stroke-width': 1,
@@ -291,7 +318,7 @@ function drawNode(node) {
 
   // Podmapový odkaz: vnitřní rámeček (vizuální „double") + tooltip s názvem cílové mapy
   if (node.linkedMapId) {
-    g.appendChild(el('rect', {
+    if (boxy) g.appendChild(el('rect', {
       x: 3, y: 3, width: w - 6, height: h - 6, rx: 8,
       fill: 'none', stroke: c.stroke, 'stroke-width': 1, 'stroke-dasharray': '3 2',
     }));
@@ -400,15 +427,40 @@ function drawNode(node) {
     rightPad = 22;
   }
 
-  // Záložka ⭐ vpravo nahoře (vlevo od +N badge, pokud je)
+  // Záložka ⭐ vpravo nahoře (vlevo od +N badge / komentářů, pokud jsou)
+  const hasComments = !!(node.comments && node.comments.length);
   if (node.bookmarked) {
-    const sx = (node.collapsed && hasKids) ? w - 24 : w - 11;
+    const sx = (node.collapsed && hasKids) ? w - 24 : (hasComments ? w - 30 : w - 11);
     const star = el('text', {
       x: sx, y: 10, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': 12,
     });
     star.style.pointerEvents = 'none';
     star.textContent = '⭐';
     g.appendChild(star);
+  }
+
+  // Komentáře 💬 + počet vpravo nahoře + tooltip s prvním komentářem (sekce 7)
+  if (hasComments) {
+    const cy0 = (node.collapsed && hasKids) ? 24 : 11;
+    const cm = el('text', {
+      class: 'node-comments', x: w - 6, y: cy0,
+      'text-anchor': 'end', 'dominant-baseline': 'central', 'font-size': 11,
+    });
+    cm.style.pointerEvents = 'none';
+    cm.textContent = '💬' + node.comments.length;
+    const tt = el('title');
+    const first = (node.comments[0] && node.comments[0].text) || '';
+    tt.textContent = first.length > 80 ? first.slice(0, 80) + '…' : first;
+    cm.appendChild(tt);
+    g.appendChild(cm);
+  }
+
+  // Zámek 🔒 vlevo nahoře u zamčeného uzlu (sekce 3)
+  if (node.locked) {
+    const lk = el('text', { x: 7, y: 12, 'text-anchor': 'start', 'dominant-baseline': 'central', 'font-size': 11 });
+    lk.style.pointerEvents = 'none';
+    lk.textContent = '🔒';
+    g.appendChild(lk);
   }
 
   // GitHub ikona vlevo dole pokud je vyplněn odkaz
@@ -503,9 +555,25 @@ function attachDrag(g, node) {
     if (e.target.classList.contains('resize-handle')) return;
     e.stopPropagation();
 
+    // View mode: uzel není tažitelný — klik (bez tažení) otevře read-only detail okno
+    if (!isEditMode()) {
+      const sx = e.clientX, sy = e.clientY;
+      let movedV = false;
+      const mvV = (ev) => { if (Math.abs(ev.clientX - sx) > 3 || Math.abs(ev.clientY - sy) > 3) movedV = true; };
+      const upV = () => {
+        window.removeEventListener('mousemove', mvV);
+        window.removeEventListener('mouseup', upV);
+        if (!movedV) { getState().selectedNodeId = node.id; openNodeDetail(node); }
+      };
+      window.addEventListener('mousemove', mvV);
+      window.addEventListener('mouseup', upV);
+      return;
+    }
+
     const st = getState();
     const shift = e.shiftKey;
     const ctrl = e.ctrlKey || e.metaKey;  // Ctrl+klik na odkazový uzel = přechod do podmapy
+    const locked = !!node.locked;         // zamčený uzel se nehýbe (sekce 3)
     const scale = st.viewTransform.scale;
     const startX = e.clientX, startY = e.clientY;
     let moved = false;
@@ -517,6 +585,7 @@ function attachDrag(g, node) {
       : [{ n: node, x: node.x, y: node.y }];
 
     const move = (ev) => {
+      if (locked) return;  // zamčený uzel ignoruje tažení (klik pak otevře panel)
       const dx = (ev.clientX - startX) / scale;
       const dy = (ev.clientY - startY) / scale;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
@@ -583,6 +652,7 @@ function attachDrag(g, node) {
 function attachResize(handle, g, node, rect, handleEl, labelText) {
   handle.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
+    if (!isEditMode() || node.locked) return;  // resize jen v edit mode a u odemčeného uzlu
     e.stopPropagation();
     const scale = getState().viewTransform.scale;
     const startX = e.clientX, startY = e.clientY;
@@ -610,6 +680,7 @@ function attachResize(handle, g, node, rect, handleEl, labelText) {
 // --- Inline edit labelu (dvojklik) ---
 function attachEdit(labelText, g, node) {
   g.addEventListener('dblclick', (e) => {
+    if (!isEditMode()) return;  // inline edit jen v edit mode (View mode má detail okno)
     e.stopPropagation();
     e.preventDefault();
     // Odstraň případný zaseklý edit input z dřívějška (pojistka proti „přilepenému" poli)

@@ -1,10 +1,85 @@
 // Levý sidebar - seznam map a jejich správa. Komunikuje pouze přes api.js
 import { api } from './api.js';
 import { toast } from './toast.js';
+import { nodeColors } from './app.js';
 import * as templates from './templates.js';
 import * as stats from './stats.js';
 
 const el = document.getElementById('sidebar');
+
+// --- Miniaturní náhled mapy (sekce 8) ---
+let previewTimer = null, previewEl = null, previewId = null;
+const previewCache = new Map();  // id → plná mapa (ať hover netahá pořád)
+
+(function injectPreviewStyle() {
+  if (document.getElementById('sb-preview-style')) return;
+  const s = document.createElement('style');
+  s.id = 'sb-preview-style';
+  s.textContent = `
+    #sb-preview { position: fixed; z-index: 120; width: 240px; background: #111122;
+      border: 1px solid #7C3AED44; border-radius: 8px; box-shadow: 0 12px 36px #000a;
+      overflow: hidden; font-family: 'Inter', system-ui, sans-serif; pointer-events: none; }
+    #sb-preview .sbp-canvas { width: 240px; height: 140px; background: #0d0d1a; display: block; }
+    #sb-preview .sbp-foot { padding: 5px 8px; font-size: 11px; color: #9a9ab0; border-top: 1px solid #7C3AED22; }
+    #sb-preview .sbp-empty { width: 240px; height: 140px; display: flex; align-items: center; justify-content: center; color: #5a5a72; font-size: 12px; }`;
+  document.head.appendChild(s);
+})();
+
+function hidePreview() {
+  clearTimeout(previewTimer); previewTimer = null; previewId = null;
+  if (previewEl) { previewEl.remove(); previewEl = null; }
+}
+
+// Naplánuje zobrazení náhledu po 300ms hoveru
+function schedulePreview(m, row) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    previewId = m.id;
+    let full = previewCache.get(m.id);
+    if (!full) { try { full = await api.getMap(m.id); previewCache.set(m.id, full); } catch (e) { return; } }
+    if (previewId !== m.id) return;  // myš mezitím odešla
+    buildPreview(full, m, row);
+  }, 300);
+}
+
+// Zmenšená SVG kopie mapy (240×140)
+function miniSvg(map) {
+  const W = 240, H = 140, PAD = 10;
+  const ns = map.nodes || [];
+  if (!ns.length) return '<div class="sbp-empty">prázdná mapa</div>';
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of ns) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); }
+  const bw = (maxX - minX) || 1, bh = (maxY - minY) || 1;
+  const sc = Math.min((W - 2 * PAD) / bw, (H - 2 * PAD) / bh);
+  const ox = PAD + ((W - 2 * PAD) - bw * sc) / 2, oy = PAD + ((H - 2 * PAD) - bh * sc) / 2;
+  const tx = (x) => (ox + (x - minX) * sc).toFixed(1), ty = (y) => (oy + (y - minY) * sc).toFixed(1);
+  let s = `<svg class="sbp-canvas" viewBox="0 0 ${W} ${H}">`;
+  for (const gr of (map.groups || [])) {
+    s += `<rect x="${tx(gr.x)}" y="${ty(gr.y)}" width="${(gr.width * sc).toFixed(1)}" height="${(gr.height * sc).toFixed(1)}" rx="2" fill="none" stroke="${gr.color || '#7C3AED'}66"/>`;
+  }
+  for (const n of ns) {
+    const c = nodeColors(n);
+    s += `<rect x="${tx(n.x)}" y="${ty(n.y)}" width="${Math.max(1, n.width * sc).toFixed(1)}" height="${Math.max(1, n.height * sc).toFixed(1)}" rx="1.5" fill="${c.stroke}" opacity="0.85"/>`;
+  }
+  return s + '</svg>';
+}
+
+function buildPreview(full, m, row) {
+  hidePreview();  // ujisti se, že není starý
+  previewId = m.id;
+  previewEl = document.createElement('div');
+  previewEl.id = 'sb-preview';
+  const date = (m.updatedAt || full.updatedAt || '').slice(0, 10);
+  previewEl.innerHTML = miniSvg(full)
+    + `<div class="sbp-foot">${(full.nodes || []).length} uzlů · ${(full.groups || []).length} skupin${date ? ' · ' + date : ''}</div>`;
+  document.body.appendChild(previewEl);
+  // Pozice: vpravo od sidebaru, zarovnáno k řádku (clamp do viewportu)
+  const sbRect = el.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const top = Math.min(window.innerHeight - previewEl.offsetHeight - 8, Math.max(8, rowRect.top));
+  previewEl.style.left = (sbRect.right + 8) + 'px';
+  previewEl.style.top = top + 'px';
+}
 
 let onSelect = null;     // callback při výběru mapy
 let onGoTo = null;       // callback (mapId, nodeId) pro skok na záložku
@@ -52,6 +127,8 @@ async function loadBookmarks() {
 
 // Znovu načte index ze serveru a překreslí seznam
 export async function refresh() {
+  hidePreview();
+  previewCache.clear();  // náhledy se znovu načtou (mapy se mohly změnit)
   try {
     maps = await api.getMaps();
   } catch (err) {
@@ -199,6 +276,8 @@ function renderRow(m, depth = 0, hasChildren = false) {
   if (depth) name.style.fontSize = '11px';
   name.textContent = m.name;
   name.addEventListener('click', () => selectMap(m.id));
+  name.addEventListener('mouseenter', () => schedulePreview(m, row));  // náhled mapy (sekce 8)
+  row.addEventListener('mouseleave', hidePreview);
   row.appendChild(name);
 
   // Tlačítko ⋯
@@ -249,7 +328,7 @@ function renderMenu(m) {
 // --- Akce ---
 
 // Nová mapa: modal s výběrem šablony
-function startCreate() {
+export function startCreate() {
   templates.openModal(async (name, key) => {
     try {
       const map = await api.createMap(name);
