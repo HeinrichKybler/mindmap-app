@@ -14,10 +14,56 @@ function el(tag, attrs = {}) {
   return e;
 }
 
-// Bezier dráha mezi dvěma body
-function cubicBezierPath(x1, y1, x2, y2) {
-  const cy = (y2 - y1) * 0.5;
-  return `M${x1},${y1} C${x1},${y1 + cy} ${x2},${y2 - cy} ${x2},${y2}`;
+// Inteligentní routing hrany — dle vzájemné polohy uzlů zvolí vhodný východ/příchod.
+// fromNode/toNode jsou volitelné; bez nich fallback na původní svislou bezier (x1..y2).
+function cubicBezierPath(x1, y1, x2, y2, fromNode, toNode) {
+  // Bez uzlů: zachovej původní chování (zpětná kompatibilita)
+  if (!fromNode || !toNode) {
+    const cy = (y2 - y1) * 0.5;
+    return `M${x1},${y1} C${x1},${y1 + cy} ${x2},${y2 - cy} ${x2},${y2}`;
+  }
+
+  // Středy uzlů a jejich rozdíl
+  const fcx = fromNode.x + fromNode.width / 2;
+  const fcy = fromNode.y + fromNode.height / 2;
+  const tcx = toNode.x + toNode.width / 2;
+  const tcy = toNode.y + toNode.height / 2;
+  const dx = tcx - fcx;
+  const dy = tcy - fcy;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+
+  // Středy stran uzlů (východ/příchod)
+  const fTop = [fcx, fromNode.y], fBottom = [fcx, fromNode.y + fromNode.height];
+  const fLeft = [fromNode.x, fcy], fRight = [fromNode.x + fromNode.width, fcy];
+  const tTop = [tcx, toNode.y], tBottom = [tcx, toNode.y + toNode.height];
+  const tLeft = [toNode.x, tcy], tRight = [toNode.x + toNode.width, tcy];
+
+  // Pomocné generátory dráhy
+  const vBezier = (a, b) => { const cy = (b[1] - a[1]) * 0.5; return `M${a[0]},${a[1]} C${a[0]},${a[1] + cy} ${b[0]},${b[1] - cy} ${b[0]},${b[1]}`; };
+  const hBezier = (a, b) => { const cx = (b[0] - a[0]) * 0.5; return `M${a[0]},${a[1]} C${a[0] + cx},${a[1]} ${b[0] - cx},${b[1]} ${b[0]},${b[1]}`; };
+  const line = (a, b) => `M${a[0]},${a[1]} L${b[0]},${b[1]}`;
+
+  const ALIGN = 20;   // práh „stejná osa" (přímá čára)
+  const DIAG = 0.6;   // poměr min/max nad kterým jde o diagonálu
+  const ratio = Math.max(adx, ady) ? Math.min(adx, ady) / Math.max(adx, ady) : 0;
+
+  // Diagonála — |dx| a |dy| přibližně stejné → východ z nejbližšího rohu, svislá bezier
+  if (ratio > DIAG) {
+    const a = [dx > 0 ? fromNode.x + fromNode.width : fromNode.x, dy > 0 ? fromNode.y + fromNode.height : fromNode.y];
+    const b = [dx > 0 ? toNode.x : toNode.x + toNode.width, dy > 0 ? toNode.y : toNode.y + toNode.height];
+    return vBezier(a, b);
+  }
+
+  // Svislé propojení (toNode pod/nad fromNode)
+  if (ady >= adx) {
+    if (adx < ALIGN) return dy > 0 ? line(fBottom, tTop) : line(fTop, tBottom);  // téměř stejná osa
+    return dy > 0 ? vBezier(fBottom, tTop) : vBezier(fTop, tBottom);
+  }
+
+  // Vodorovné propojení (toNode vpravo/vlevo)
+  if (ady < ALIGN) return dx > 0 ? line(fRight, tLeft) : line(fLeft, tRight);   // téměř stejná osa
+  return dx > 0 ? hBezier(fRight, tLeft) : hBezier(fLeft, tRight);
 }
 
 // --- Injekce stylů + marker šipky (jen jednou) ---
@@ -89,12 +135,12 @@ export function renderEdges(nodeList, edgeList) {
     const outOfDrill = vis && (!vis.has(from.id) || !vis.has(to.id));
     if (isHidden(from, idx) || isHidden(to, idx) || filtered || outOfDrill) g.setAttribute('display', 'none');
 
-    // Střed spodní strany → střed horní strany
+    // Výchozí body (fallback) — skutečný routing si zvolí cubicBezierPath dle polohy uzlů
     const x1 = from.x + from.width / 2;
     const y1 = from.y + from.height;
     const x2 = to.x + to.width / 2;
     const y2 = to.y;
-    const d = cubicBezierPath(x1, y1, x2, y2);
+    const d = cubicBezierPath(x1, y1, x2, y2, from, to);
 
     const c = nodeColors(from);
     const selected = edge.id === selId;
@@ -136,10 +182,10 @@ export function renderEdges(nodeList, edgeList) {
     });
     g.appendChild(hit);
 
-    // Popisek na středu křivky
+    // Popisek na středu mezi uzly (robustní pro libovolný směr routingu)
     if (edge.label) {
-      const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2;
+      const mx = (from.x + from.width / 2 + to.x + to.width / 2) / 2;
+      const my = (from.y + from.height / 2 + to.y + to.height / 2) / 2;
       const text = el('text', {
         x: mx, y: my, 'text-anchor': 'middle', 'dominant-baseline': 'central',
         fill: '#fff', 'font-size': 11, 'font-family': "'Inter', system-ui, sans-serif",
