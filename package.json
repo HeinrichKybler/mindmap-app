@@ -1,6 +1,6 @@
 {
   "name": "mindmap-app",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MindMap aplikace - Node.js + Express, vanilla JS",
   "author": {
     "name": "hanz",

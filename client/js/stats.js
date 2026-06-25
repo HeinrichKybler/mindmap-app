@@ -34,7 +34,8 @@ function compute() {
   let maxDepth = 0;
   for (const n of nodes) {
     let d = 1, p = n.parentId ? byId[n.parentId] : null;
-    while (p) { d++; p = p.parentId ? byId[p.parentId] : null; }
+    const seen = new Set([n.id]);  // ochrana proti cyklu v parentId (poškozená data) — jinak nekonečná smyčka a zamrzlé UI
+    while (p && !seen.has(p.id)) { seen.add(p.id); d++; p = p.parentId ? byId[p.parentId] : null; }
     if (d > maxDepth) maxDepth = d;
   }
 

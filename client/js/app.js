@@ -131,7 +131,8 @@ export function clientToMap(clientX, clientY) {
 
 // Vytvoří kořenový uzel na pozici kurzoru (dvojklik i kontextové menu „Nový uzel zde")
 export function addRootNodeAt(clientX, clientY) {
-  if (timeline.isActive()) return;  // v timeline režimu se uzly nepřidávají
+  // V timeline/drill/focus by nový kořenový uzel vznikl mimo viditelnou množinu = neviditelný orphan
+  if (timeline.isActive() || drill.isActive() || focus.isActive()) return;
   const { x: mx, y: my } = clientToMap(clientX, clientY);
   const node = nodes.makeNode({ parentId: null, x: mx - 80, y: my - 24, color: defaultNodeColor });
   state.map.nodes.push(node);
@@ -247,6 +248,10 @@ export function renderMap() {
 // Načte a zobrazí vybranou mapu
 async function selectMap(id) {
   try {
+    // Nejdřív flushni rozpracované uložení STARÉ mapy — jinak by debounce timer doběhl až po
+    // přepnutí a uložil novou mapu (nebo zahodil rozpracovanou změnu staré). Pak zavři hledání.
+    await flushSave();
+    search.closeSearch();
     // Ukonči přechodové módy před načtením jiné mapy (snapshot/osa/ztlumení/drill patří staré mapě)
     if (timeline.isActive()) timeline.deactivate();
     if (focus.isActive()) focus.exit();
@@ -317,6 +322,7 @@ function deleteNode(node) {
   collect(node.id);
   map.nodes = map.nodes.filter((n) => !toRemove.has(n.id));
   map.edges = map.edges.filter((e) => !toRemove.has(e.fromId) && !toRemove.has(e.toId));
+  if (drill.isActive()) drill.pruneRemoved(toRemove);  // smazaný drill-kořen by jinak nechal prázdné plátno
   state.selectedNodeId = null;
   panel.close();
   renderMap();
@@ -371,6 +377,13 @@ window.addEventListener('keydown', (e) => {
   // V pitch módu řeší klávesy jeho vlastní capture listener (šipky/Escape) — ostatní ignoruj,
   // ať se mapa pod prezentačním overlayem nemění
   if (pitch.isActive()) return;
+
+  // Otevřený modal (Nastavení / Cheatsheet) pohlcuje mapové zkratky — projde jen jeho zavření,
+  // ať se mapa pod overlayem nemění (Delete/Tab/Enter/Space/… by jinak prošly)
+  if (settings.isOpen() || cheatsheet.isOpen()) {
+    if (cheatsheet.isOpen() && (e.key === 'Escape' || e.key === '?')) { e.preventDefault(); cheatsheet.close(); }
+    return;
+  }
 
   // Ctrl+F hledání / Ctrl+Shift+F focus mode (fungují i při psaní)
   if (mod && k === 'f') {
@@ -465,6 +478,7 @@ function toggleMinimap() {
 
 // --- Auto-save ---
 let saveTimer = null;
+let pendingSave = false;  // je naplánovaná, ještě nezapsaná změna? (kvůli flushi při přepnutí mapy)
 let dotTimer = null;
 const saveDot = document.createElement('span');
 saveDot.id = 'save-dot';
@@ -487,20 +501,34 @@ function flashSaveError() {
 
 export function autoSave() {
   stats.update();  // statistiky reflektují každou změnu okamžitě
+  pendingSave = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    if (!state.currentMapId) return;
+    saveTimer = null;
+    if (!state.currentMapId) { pendingSave = false; return; }
     try {
       // V timeline režimu jsou x/y dočasné — na disk ulož původní pozice ze snapshotu,
       // datové změny (date, label, …) zůstanou zachované
       const payload = timeline.isActive() ? timeline.mapForSave(state.map) : state.map;
       await api.updateMap(state.currentMapId, payload);
+      pendingSave = false;
       flashSaved();
     } catch (err) {
       console.error('Auto-save selhal:', err.message);
       flashSaveError();
     }
   }, 300);
+}
+
+// Okamžitě zapíše rozpracovanou změnu (volá se před přepnutím mapy, ať se neztratí v debounce okně)
+async function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!pendingSave || !state.currentMapId) { pendingSave = false; return; }
+  pendingSave = false;
+  const id = state.currentMapId;
+  const payload = timeline.isActive() ? timeline.mapForSave(state.map) : state.map;
+  try { await api.updateMap(id, payload); } catch (err) { console.error('Flush save selhal:', err.message); }
 }
 
 // --- Auto-layout ---

@@ -19,7 +19,8 @@ const app = express();
 
 // CORS pro LAN přístup z telefonu
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+// 50 MB: mapy nesou obrázky jako Base64 přímo v JSON, 10 MB bylo málo (PUT padal na 413 → ztráta změny)
+app.use(express.json({ limit: '50mb' }));
 
 // API routy
 app.use('/api/maps', mapsRouter);
@@ -32,9 +33,11 @@ app.use('/vendor', express.static(VENDOR_DIR));
 // Statické soubory klienta
 app.use(express.static(CLIENT_DIR));
 
-// Globální error handler
+// Globální error handler — respektuj HTTP status chyby (413/400 ne jako 500) a neleakuj interní detail
 app.use((err, req, res, next) => {
-  res.status(500).json({ error: 'Chyba serveru: ' + err.message });
+  const status = err.status || err.statusCode || 500;
+  console.error('Chyba serveru:', err.message);
+  res.status(status).json({ error: status === 413 ? 'Data jsou příliš velká k uložení' : 'Chyba serveru' });
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {

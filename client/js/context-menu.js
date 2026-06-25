@@ -169,8 +169,11 @@ function groupColorPicker(group) {
   input.value = group.color || '#7C3AED';
   input.style.cssText = 'position:fixed;left:-9999px;top:0';
   document.body.appendChild(input);
+  const done = () => input.remove();
   input.addEventListener('input', () => { group.color = input.value; groups.renderGroups(); });
-  input.addEventListener('change', () => { pushHistory(); autoSave(); input.remove(); });
+  input.addEventListener('change', () => { pushHistory(); autoSave(); done(); });
+  // Úklid i při zrušení pickeru (kdy 'change' nemusí firnout): po zavření se vrátí focus do okna
+  window.addEventListener('focus', done, { once: true });
   input.click();
 }
 

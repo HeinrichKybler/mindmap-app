@@ -35,12 +35,14 @@ async function loadBookmarks() {
   bookmarkItems = [];
   try {
     const list = await api.getMaps();
-    for (const m of list) {
-      const full = await api.getMap(m.id);
-      for (const n of (full.nodes || [])) {
+    // Paralelně místo sériově (N+1) — jedna pomalá/chybná mapa nezablokuje ostatní
+    const full = await Promise.all(list.map((m) => api.getMap(m.id).catch(() => null)));
+    list.forEach((m, i) => {
+      if (!full[i]) return;
+      for (const n of (full[i].nodes || [])) {
         if (n.bookmarked) bookmarkItems.push({ mapId: m.id, mapName: m.name, nodeId: n.id, label: n.label || '(bez názvu)' });
       }
-    }
+    });
   } catch (err) {
     console.error('Nepodařilo se načíst záložky:', err.message);
     toast('Nepodařilo se načíst záložky', 'error');

@@ -35,7 +35,8 @@ export function inViewSet() {
   const set = new Set();
   for (const n of nodes) {
     let p = n;
-    while (p) { if (p.id === rootId) { set.add(n.id); break; } p = p.parentId ? byId[p.parentId] : null; }
+    const seen = new Set();  // ochrana proti cyklu v parentId (poškozená data)
+    while (p && !seen.has(p.id)) { seen.add(p.id); if (p.id === rootId) { set.add(n.id); break; } p = p.parentId ? byId[p.parentId] : null; }
   }
   return set;
 }
@@ -99,4 +100,12 @@ export function exit() {
   stack = [];
   renderMap();
   updateBreadcrumb();
+}
+
+// Po smazání uzlů vyřaď smazaná id ze zásobníku (volající překreslí mapu).
+// Pokud se smaže kořen drilldownu, spadne na nejbližší žijící úroveň (nebo se ukončí).
+export function pruneRemoved(removedIds) {
+  if (!stack.length) return;
+  const next = stack.filter((id) => !removedIds.has(id));
+  if (next.length !== stack.length) { stack = next; updateBreadcrumb(); }
 }

@@ -56,6 +56,15 @@ router.put('/:id', (req, res) => {
     }
     const existing = readMap(id);
     const body = req.body || {};
+    // Validace typů — ochrana proti uložení poškozené mapy (render by pak spadl na .filter/.forEach)
+    for (const key of ['nodes', 'edges', 'groups']) {
+      if (key in body && !Array.isArray(body[key])) {
+        return res.status(400).json({ error: `Pole '${key}' musí být pole.` });
+      }
+    }
+    if ('name' in body && typeof body.name !== 'string') {
+      return res.status(400).json({ error: "Pole 'name' musí být řetězec." });
+    }
     // Sloučení; id a createdAt zůstávají, updatedAt řeší writeMap
     const map = { ...existing, ...body, id, createdAt: existing.createdAt };
     writeMap(id, map);

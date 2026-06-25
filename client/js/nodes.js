@@ -169,9 +169,9 @@ export function renderAll() {
 // Překreslí jeden konkrétní uzel (nahradí jeho <g>)
 export function refresh(node) {
   const old = layer().querySelector(`[data-id="${node.id}"]`);
-  const fresh = drawNode(node);
-  if (old) old.replaceWith(fresh);
-  else layer().appendChild(fresh);
+  if (old) { old.replaceWith(drawNode(node)); return; }
+  // Uzel není vykreslený (např. opožděný highlight timeout po přepnutí mapy) — nepřidávej cizí uzel
+  if (nodesArr().includes(node)) layer().appendChild(drawNode(node));
 }
 
 // --- Koš (mazání tažením) ---
@@ -224,6 +224,7 @@ function removeNodeTree(node) {
     getState().selectedNodeId = null;
     panel.close();
   }
+  if (drill.isActive()) drill.pruneRemoved(toRemove);  // smazaný drill-kořen by jinak nechal prázdné plátno
 }
 
 // Animované smazání (scale 0, opacity 0, 150ms), poté odstranění ze stavu
@@ -485,8 +486,10 @@ function attachDrag(g, node) {
         // V propojovacím režimu klik vybírá uzly pro hranu
         edges.handleNodeClick(node);
       } else {
-        // Klik bez pohybu otevře detail panel
+        // Klik bez pohybu otevře detail panel; zruš případný výběr hrany,
+        // jinak by Delete smazal uzel I dříve vybranou hranu
         getState().selectedNodeId = node.id;
+        if (getState().selectedEdgeId) { getState().selectedEdgeId = null; rerenderEdges(); }
         panel.open(node);
       }
     };
@@ -663,7 +666,9 @@ function reparent(node, newParentId) {
   const te = oldParentId ? map.edges.find((e) => e.fromId === oldParentId && e.toId === node.id) : null;
   if (newParentId) {
     if (te) te.fromId = newParentId;
-    else map.edges.push({ id: crypto.randomUUID(), fromId: newParentId, toId: node.id, label: '' });
+    // Nepřidávej druhou hranu, pokud už mezi novým rodičem a uzlem nějaká existuje (např. vztahová)
+    else if (!map.edges.some((e) => e.fromId === newParentId && e.toId === node.id))
+      map.edges.push({ id: crypto.randomUUID(), fromId: newParentId, toId: node.id, label: '' });
   } else if (te) {
     map.edges = map.edges.filter((e) => e !== te);
   }

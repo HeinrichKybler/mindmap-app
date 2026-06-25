@@ -109,25 +109,33 @@ async function onFile(e) {
   const file = e.target.files[0];
   fileInput.value = '';
   if (!file) return;
+  // Parsování odděleno od ukládání — ať chybová hláška nelže (parse vs. uložení)
+  let data;
   try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    if (!isValidMap(data)) { toast('Neplatný soubor — chybí nodes nebo edges', 'error'); return; }
+    data = JSON.parse(await file.text());
+  } catch {
+    toast('Neplatný soubor — není platný JSON', 'error');
+    return;
+  }
+  if (!isValidMap(data)) { toast('Neplatný soubor — chybí nodes nebo edges', 'error'); return; }
 
-    // Název: z mapy, jinak z názvu souboru
-    const name = (data.name && String(data.name).trim())
-      || file.name.replace(/\.json$/i, '')
-      || 'Importovaná mapa';
+  // Název: z mapy, jinak z názvu souboru
+  const name = (data.name && String(data.name).trim())
+    || file.name.replace(/\.json$/i, '')
+    || 'Importovaná mapa';
 
-    // Vytvoř novou mapu a nahraj do ní importovaná data
-    const created = await api.createMap(name);
+  let created = null;
+  try {
+    created = await api.createMap(name);
     await api.updateMap(created.id, { ...data, name });
     await sidebar.refresh();
     sidebar.select(created.id);
     toast('Mapa importována', 'success');
   } catch (err) {
-    toast('Neplatný soubor — chybí nodes nebo edges', 'error');
     console.error('Import selhal:', err);
+    // Ukliď prázdnou mapu, která už vznikla, ať nezůstane orphan v indexu
+    if (created) { try { await api.deleteMap(created.id); } catch {} await sidebar.refresh(); }
+    toast('Import se nepodařilo uložit', 'error');
   }
 }
 

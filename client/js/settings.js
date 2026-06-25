@@ -5,6 +5,8 @@ import * as cheatsheet from './cheatsheet.js';
 import { toast } from './toast.js';
 
 let settings = null;  // aktuální načtené nastavení
+let modalOpen = false;  // je modal otevřený? (kvůli guardu globálních zkratek v app.js)
+export function isOpen() { return modalOpen; }
 
 (function injectStyles() {
   if (document.getElementById('settings-style')) return;
@@ -159,13 +161,15 @@ function tabContent(tab, body, close) {
 
 export function open() {
   if (!settings) { toast('Nastavení se ještě nenačetlo', 'info'); return; }
+  if (modalOpen) return;
+  modalOpen = true;
   const overlay = document.createElement('div');
   overlay.id = 'set-overlay';
   const modal = document.createElement('div');
   modal.id = 'set-modal';
   modal.innerHTML = '<h2>Nastavení</h2><div id="set-tabs"></div><div id="set-body"></div>';
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { modalOpen = false; overlay.remove(); document.removeEventListener('keydown', onKey); };
   const tabsEl = modal.querySelector('#set-tabs');
   const bodyEl = modal.querySelector('#set-body');
   let active = TABS[0];

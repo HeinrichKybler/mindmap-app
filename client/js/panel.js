@@ -344,10 +344,9 @@ function build() {
   refs.tagInput.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const v = refs.tagInput.value.trim();
-    if (current && v && !current.tags.includes(v)) {
-      current.tags.push(v);
-      renderTags();
-      autoSave();
+    if (current && v) {
+      if (!current.tags) current.tags = [];
+      if (!current.tags.includes(v)) { current.tags.push(v); renderTags(); autoSave(); }
     }
     refs.tagInput.value = '';
   });
@@ -582,7 +581,7 @@ export function focusGroupName() { if (refs.groupName) { refs.groupName.focus();
 // --- Tagy ---
 function renderTags() {
   refs.tags.innerHTML = '';
-  for (const t of current.tags) {
+  for (const t of (current.tags || [])) {
     const pill = document.createElement('span');
     pill.className = 'p-tag';
     pill.textContent = t;
@@ -612,11 +611,13 @@ function onImage(e) {
     return;
   }
   refs.warn.style.display = 'none';
+  const node = current;  // zachyť uzel z času výběru — async čtení by jinak zapsalo do mezitím vybraného jiného uzlu
   const reader = new FileReader();
   reader.onload = () => {
-    current.imageBase64 = reader.result;
-    renderPreview();
-    nodes.refresh(current);
+    if (!node) return;
+    node.imageBase64 = reader.result;
+    if (current === node) renderPreview();
+    nodes.refresh(node);
     pushHistory();
     autoSave();
   };
