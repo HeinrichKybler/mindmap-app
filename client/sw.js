@@ -1,5 +1,5 @@
 // Service worker — cache-first pro shell, network-first pro /api/, offline fallback
-const CACHE = 'mindmap-v14';
+const CACHE = 'mindmap-v15';
 
 // Aplikační shell cachovaný při instalaci
 const SHELL = [
@@ -64,12 +64,11 @@ function apiFetch(request) {
   );
 }
 
-// Cache-first pro shell: cache → síť (a doplň do cache)
-function shellFetch(request) {
+// Cache-first (obrázky, ikony, fonty) — mění se zřídka, šetří síť
+function cacheFirst(request) {
   return caches.match(request).then((cached) => {
     if (cached) return cached;
     return fetch(request).then((res) => {
-      // Uložení úspěšných GET odpovědí pro příští offline použití
       if (res && res.ok && request.method === 'GET') {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(request, copy));
@@ -79,13 +78,32 @@ function shellFetch(request) {
   });
 }
 
+// Network-first (kód: HTML/JS/CSS/manifest) — vždy aktuální verze když běží server,
+// cache slouží jen jako offline fallback. Bez toho starý SW servíruje starý kód po updatu.
+function networkFirst(request) {
+  return fetch(request).then((res) => {
+    if (res && res.ok && request.method === 'GET') {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(request, copy));
+    }
+    return res;
+  }).catch(() => caches.match(request));
+}
+
+// Statická aktiva (cache-first): obrázky a ikony
+function isAsset(pathname) {
+  return /\.(png|jpe?g|svg|ico|webp|gif|woff2?|ttf)$/i.test(pathname) || pathname.startsWith('/icons/');
+}
+
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;  // mutace (POST/PUT/DELETE) nech projít na síť
   const url = new URL(request.url);
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(apiFetch(request));
+  } else if (isAsset(url.pathname)) {
+    e.respondWith(cacheFirst(request));
   } else {
-    e.respondWith(shellFetch(request));
+    e.respondWith(networkFirst(request));  // HTML, JS, CSS, manifest, vendor skripty
   }
 });

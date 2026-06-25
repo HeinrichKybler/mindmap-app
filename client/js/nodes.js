@@ -611,6 +611,10 @@ function attachResize(handle, g, node, rect, handleEl, labelText) {
 function attachEdit(labelText, g, node) {
   g.addEventListener('dblclick', (e) => {
     e.stopPropagation();
+    e.preventDefault();
+    // Odstraň případný zaseklý edit input z dřívějška (pojistka proti „přilepenému" poli)
+    document.querySelectorAll('.node-edit-input').forEach((el) => el.remove());
+
     const rect = getCanvasRect();
     const v = getState().viewTransform;
     const left = rect.left + v.x + node.x * v.scale;
@@ -624,13 +628,14 @@ function attachEdit(labelText, g, node) {
     input.style.width = node.width * v.scale + 'px';
     input.style.height = node.height * v.scale + 'px';
     document.body.appendChild(input);
-    input.focus();
-    input.select();
+    // Fokus až po vykreslení — jinak ho doznívající dvojklik může ukrást a input zůstane viset
+    requestAnimationFrame(() => { input.focus(); input.select(); });
 
     let done = false;
     const finish = (commit) => {
       if (done) return;
       done = true;
+      document.removeEventListener('mousedown', onOutside, true);
       if (commit) {
         const val = input.value.trim();
         if (val && val !== node.label) {
@@ -642,11 +647,16 @@ function attachEdit(labelText, g, node) {
       }
       input.remove();
     };
+    // Klik mimo input = potvrď a zavři (pojistka, kdyby blur nefiroval)
+    const onOutside = (ev) => { if (ev.target !== input) finish(true); };
     input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();  // ať psaní nespouští globální klávesové zkratky (Delete, n, …)
       if (ev.key === 'Enter') finish(true);
       else if (ev.key === 'Escape') finish(false);
     });
     input.addEventListener('blur', () => finish(true));
+    // Navěšuj až po aktuálním cyklu událostí, ať listener neodpálí samotný dvojklik
+    setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
   });
 }
 

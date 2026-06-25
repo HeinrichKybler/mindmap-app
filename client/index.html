@@ -82,6 +82,18 @@
   <!-- Knihovna pro PNG export (UMD global domtoimage) -->
   <script src="/vendor/dom-to-image-more.min.js"></script>
   <script type="module" src="js/app.js"></script>
-  <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      // Když nový service worker převezme řízení (po updatu), jednou přenačti stránku,
+      // ať se načte aktuální kód místo starého z cache. Flag brání smyčce.
+      let swRefreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (swRefreshing) return;
+        swRefreshing = true;
+        window.location.reload();
+      });
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
 </body>
 </html>
