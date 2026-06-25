@@ -1,0 +1,35 @@
+appId: com.hanz.mindmap
+productName: MindMap
+directories:
+  output: dist
+# asar vypnuto: server běží přes child_process.fork a v RUN_AS_NODE režimu
+# nelze spolehlivě načítat skripty/moduly z asar archivu
+asar: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+# GitHub Releases jako zdroj aktualizací (electron-updater).
+# owner doplň svým GitHub uživatelským jménem; repo musí být VEŘEJNÝ.
+publish:
+  provider: github
+  owner: HeinrichKybler
+  repo: mindmap-app
+files:
+  - electron/**
+  - server/**
+  - client/**
+  - package.json
+  - .env.example
+extraResources:
+  # Jen ikona je potřeba za runtime (tray + okno); icon.png a generate-icons.cjs nebalíme
+  - from: build/icon.ico
+    to: build/icon.ico

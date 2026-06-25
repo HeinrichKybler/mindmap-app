@@ -1,0 +1,323 @@
+// Export/import mapy — PNG (dom-to-image-more), JSON export, JSON import
+import { getState, applyTransform } from './app.js';
+import * as sidebar from './sidebar.js';
+import { api } from './api.js';
+import { toast } from './toast.js';
+import { makeNode } from './nodes.js';
+import { applyLayout } from './layout.js';
+
+// Re-export toastu pro zpětnou kompatibilitu (panel.js importuje odsud)
+export { toast };
+
+// Spustí stažení souboru z data-url / blob-url
+function download(href, filename) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// Datum YYYY-MM-DD pro název souboru
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Očistí název mapy pro použití v názvu souboru
+function safeName(name) {
+  return (name || 'mapa').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'mapa';
+}
+
+// --- PNG export ---
+async function exportPNG() {
+  const domtoimage = window.domtoimage;
+  if (!domtoimage) { toast('Knihovna pro PNG není načtena', 'error'); return; }
+
+  const map = getState().map;
+  const nodes = map.nodes;
+  if (!nodes.length) { toast('Mapa je prázdná', 'error'); return; }
+
+  // Bounding box všech uzlů + 40px padding
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + n.height);
+  }
+  const pad = 40;
+  const w = Math.ceil(maxX - minX + pad * 2);
+  const h = Math.ceil(maxY - minY + pad * 2);
+
+  const svg = document.getElementById('canvas');
+  const panGroup = document.getElementById('pan-group');
+  const gridBg = document.getElementById('grid-bg');
+
+  // Dočasně posuň obsah do levého horního rohu (scale 1) a skryj mřížku
+  panGroup.setAttribute('transform', `translate(${-minX + pad},${-minY + pad}) scale(1)`);
+  const gridDisplay = gridBg.style.display;
+  gridBg.style.display = 'none';
+
+  try {
+    const dataUrl = await domtoimage.toPng(svg, { width: w, height: h, bgcolor: '#0d0d1a' });
+    download(dataUrl, `mindmap-${safeName(map.name)}-${today()}.png`);
+    toast('PNG uloženo', 'success');
+  } catch (err) {
+    toast('Export PNG selhal', 'error');
+    console.error('Export PNG selhal:', err);
+  } finally {
+    // Obnov původní pohled
+    gridBg.style.display = gridDisplay;
+    applyTransform();
+  }
+}
+
+// --- JSON export ---
+function exportJSON() {
+  const map = getState().map;
+  const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  download(url, `mindmap-${safeName(map.name)}.json`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('JSON uloženo', 'success');
+}
+
+// --- JSON import ---
+let fileInput = null;
+
+function ensureFileInput() {
+  if (fileInput) return fileInput;
+  fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.json';
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', onFile);
+  document.body.appendChild(fileInput);
+  return fileInput;
+}
+
+// Validace: musí mít pole nodes, edges, groups
+function isValidMap(data) {
+  return data && typeof data === 'object'
+    && Array.isArray(data.nodes)
+    && Array.isArray(data.edges)
+    && Array.isArray(data.groups);
+}
+
+async function onFile(e) {
+  const file = e.target.files[0];
+  fileInput.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!isValidMap(data)) { toast('Neplatný soubor — chybí nodes nebo edges', 'error'); return; }
+
+    // Název: z mapy, jinak z názvu souboru
+    const name = (data.name && String(data.name).trim())
+      || file.name.replace(/\.json$/i, '')
+      || 'Importovaná mapa';
+
+    // Vytvoř novou mapu a nahraj do ní importovaná data
+    const created = await api.createMap(name);
+    await api.updateMap(created.id, { ...data, name });
+    await sidebar.refresh();
+    sidebar.select(created.id);
+    toast('Mapa importována', 'success');
+  } catch (err) {
+    toast('Neplatný soubor — chybí nodes nebo edges', 'error');
+    console.error('Import selhal:', err);
+  }
+}
+
+function importJSON() {
+  ensureFileInput().click();
+}
+
+// --- Sdílená stavba stromu pro serializaci ---
+function treeRoots(map) {
+  const nodes = map.nodes || [];
+  const byId = {};
+  nodes.forEach((n) => { byId[n.id] = n; });
+  const children = {};
+  nodes.forEach((n) => { children[n.id] = []; });
+  const roots = [];
+  for (const n of nodes) {
+    if (n.parentId == null || !byId[n.parentId]) roots.push(n);
+    else children[n.parentId].push(n);
+  }
+  return { roots, children };
+}
+
+// --- Markdown export ---
+function mapToMarkdown(map) {
+  const { roots, children } = treeRoots(map);
+  let out = `# ${map.name || 'Mapa'}\n\n`;
+  const walk = (n, d) => {
+    if (d === 0) out += `## ${n.label}\n`;
+    else if (d === 1) out += `### ${n.label}\n`;
+    else out += `${'  '.repeat(d - 2)}- ${n.label}\n`;
+    children[n.id].forEach((c) => walk(c, d + 1));
+  };
+  roots.forEach((r) => walk(r, 0));
+  return out;
+}
+function exportMarkdown() {
+  const map = getState().map;
+  const blob = new Blob([mapToMarkdown(map)], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  download(url, `mindmap-${safeName(map.name)}.md`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Markdown uloženo', 'success');
+}
+
+// --- OPML export ---
+function xmlEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function mapToOPML(map) {
+  const { roots, children } = treeRoots(map);
+  const walk = (n, indent) => {
+    const kids = children[n.id];
+    if (!kids.length) return `${indent}<outline text="${xmlEsc(n.label)}" />\n`;
+    let s = `${indent}<outline text="${xmlEsc(n.label)}">\n`;
+    kids.forEach((c) => { s += walk(c, indent + '  '); });
+    s += `${indent}</outline>\n`;
+    return s;
+  };
+  let body = '';
+  roots.forEach((r) => { body += walk(r, '    '); });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>${xmlEsc(map.name || 'Mapa')}</title></head>\n  <body>\n${body}  </body>\n</opml>\n`;
+}
+function exportOPML() {
+  const map = getState().map;
+  const blob = new Blob([mapToOPML(map)], { type: 'text/xml' });
+  const url = URL.createObjectURL(blob);
+  download(url, `mindmap-${safeName(map.name)}.opml`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('OPML uloženo', 'success');
+}
+
+// --- SVG export ---
+function exportSVG() {
+  const map = getState().map;
+  const nodes = map.nodes;
+  if (!nodes.length) { toast('Mapa je prázdná', 'error'); return; }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height);
+  }
+  const pad = 40;
+  const w = Math.ceil(maxX - minX + pad * 2);
+  const h = Math.ceil(maxY - minY + pad * 2);
+  const pan = document.getElementById('pan-group').cloneNode(true);
+  pan.setAttribute('transform', `translate(${-minX + pad},${-minY + pad}) scale(1)`);
+  const defs = document.querySelector('#canvas defs');
+  const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<rect width="${w}" height="${h}" fill="#0d0d1a"/>`
+    + (defs ? defs.outerHTML : '')
+    + pan.outerHTML + '</svg>';
+  const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  download(url, `mindmap-${safeName(map.name)}.svg`);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('SVG uloženo', 'success');
+}
+
+// --- Markdown import ---
+// Parsuje #/##/### headingy i odrážky (-, *, ·) na strom dle úrovně
+function parseMarkdown(text) {
+  const nodes = [];
+  const edges = [];
+  const stack = [];  // [{ level, id }]
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    let level = -1, label = '';
+    const h = raw.match(/^(#{1,6})\s+(.*)/);
+    const b = raw.match(/^(\s*)[-*+·]\s+(.*)/);
+    if (h) {
+      if (h[1].length === 1) continue;  // # = název mapy
+      level = h[1].length - 2;          // ## → 0, ### → 1 …
+      label = h[2].trim();
+    } else if (b) {
+      level = 2 + Math.floor(b[1].replace(/\t/g, '  ').length / 2);
+      label = b[2].trim();
+    } else {
+      continue;
+    }
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+    const parent = stack.length ? stack[stack.length - 1] : null;
+    const node = makeNode({ parentId: parent ? parent.id : null, label });
+    nodes.push(node);
+    if (parent) edges.push({ id: crypto.randomUUID(), fromId: parent.id, toId: node.id, label: '' });
+    stack.push({ level, id: node.id });
+  }
+  applyLayout(nodes);
+  return { nodes, edges, groups: [] };
+}
+
+let mdInput = null;
+function ensureMdInput() {
+  if (mdInput) return mdInput;
+  mdInput = document.createElement('input');
+  mdInput.type = 'file';
+  mdInput.accept = '.md,.markdown,.txt';
+  mdInput.style.display = 'none';
+  mdInput.addEventListener('change', onMarkdownFile);
+  document.body.appendChild(mdInput);
+  return mdInput;
+}
+async function onMarkdownFile(e) {
+  const file = e.target.files[0];
+  mdInput.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const name = file.name.replace(/\.(md|markdown|txt)$/i, '') || 'Importovaná mapa';
+    const data = parseMarkdown(text);
+    if (!data.nodes.length) { toast('Markdown neobsahuje žádné položky', 'error'); return; }
+    const created = await api.createMap(name);
+    await api.updateMap(created.id, { ...data, name });
+    await sidebar.refresh();
+    sidebar.select(created.id);
+    toast('Markdown importován', 'success');
+  } catch (err) {
+    toast('Import Markdownu selhal', 'error');
+    console.error('Import MD selhal:', err);
+  }
+}
+function importMarkdown() { ensureMdInput().click(); }
+
+// --- Dropdown menu v toolbaru (sdílí styl .tb-menu) ---
+function openExportMenu(btn, items) {
+  document.querySelectorAll('.tb-menu.export-menu').forEach((m) => m.remove());
+  const menu = document.createElement('div');
+  menu.className = 'tb-menu export-menu';
+  const r = btn.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.style.left = `${r.left}px`;
+  for (const [label, fn] of items) {
+    const it = document.createElement('div');
+    it.className = 'tb-menu-item';
+    it.textContent = label;
+    it.addEventListener('click', () => { menu.remove(); fn(); });
+    menu.appendChild(it);
+  }
+  document.body.appendChild(menu);
+  const close = () => { menu.remove(); document.removeEventListener('click', close); };
+  setTimeout(() => document.addEventListener('click', close), 0);
+}
+
+// --- Připojení toolbar tlačítek ---
+const exportBtn = document.getElementById('export-btn');
+const importBtn = document.getElementById('import-btn');
+if (exportBtn) exportBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openExportMenu(exportBtn, [['PNG', exportPNG], ['JSON', exportJSON], ['Markdown', exportMarkdown], ['OPML', exportOPML], ['SVG', exportSVG]]);
+});
+if (importBtn) importBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openExportMenu(importBtn, [['JSON', importJSON], ['Markdown', importMarkdown]]);
+});

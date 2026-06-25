@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Rychlý nápad</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: #15152a; color: #e5e5f0; overflow: hidden; }
+    body { display: flex; flex-direction: column; gap: 8px; padding: 12px; -webkit-app-region: drag; }
+    .row { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+    #text { flex: 1 1 auto; padding: 8px 10px; font-size: 14px; color: #e5e5f0; background: #0a0a16; border: 1px solid #7C3AED55; border-radius: 6px; outline: none; }
+    #text:focus { border-color: #7C3AED; }
+    #map { padding: 6px 8px; font-size: 12px; color: #e5e5f0; background: #0a0a16; border: 1px solid #7C3AED33; border-radius: 6px; max-width: 200px; }
+    #save { padding: 6px 14px; font-size: 13px; font-weight: 600; color: #fff; background: #7C3AED; border: none; border-radius: 6px; cursor: pointer; }
+    #save:hover { background: #6d28d9; }
+    #status { font-size: 11px; color: #9a9ab0; -webkit-app-region: no-drag; }
+    .title { font-size: 11px; color: #7C3AED; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="title">💡 Rychlý nápad — Enter uloží, Esc zavře</div>
+  <div class="row"><input id="text" type="text" placeholder="Napiš nápad…" autocomplete="off"></div>
+  <div class="row">
+    <select id="map"></select>
+    <button id="save">Uložit</button>
+    <span id="status"></span>
+  </div>
+  <script>
+    const port = new URLSearchParams(location.search).get('port') || '3000';
+    const BASE = `http://localhost:${port}/api`;
+    const uuid = () => (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+
+    async function init() {
+      try {
+        const maps = await (await fetch(`${BASE}/maps`)).json();
+        const sel = document.getElementById('map');
+        for (const m of maps) { const o = document.createElement('option'); o.value = m.id; o.textContent = m.name; sel.appendChild(o); }
+        if (!maps.length) document.getElementById('status').textContent = 'Žádná mapa';
+      } catch (e) { document.getElementById('status').textContent = 'Server nedostupný'; }
+      document.getElementById('text').focus();
+    }
+
+    async function save() {
+      const text = document.getElementById('text').value.trim();
+      const mapId = document.getElementById('map').value;
+      if (!text || !mapId) { window.close(); return; }
+      try {
+        const map = await (await fetch(`${BASE}/maps/${mapId}`)).json();
+        map.nodes = map.nodes || []; map.edges = map.edges || []; map.groups = map.groups || [];
+        let inbox = map.groups.find((g) => g.label === 'Inbox');
+        if (!inbox) { inbox = { id: uuid(), label: 'Inbox', color: '#F59E0B', x: 80, y: 80, width: 280, height: 500 }; map.groups.push(inbox); }
+        const count = map.nodes.filter((n) => n.groupId === inbox.id).length;
+        map.nodes.push({
+          id: uuid(), parentId: null, label: text,
+          x: inbox.x + 20, y: inbox.y + 40 + count * 60, width: 240, height: 48,
+          color: 'amber', customColor: null, icon: null, borderStyle: 'solid', opacity: 1,
+          bookmarked: false, isSummary: false, tags: [], note: '', imageBase64: null, githubUrl: '', date: null,
+          task: { enabled: false, checked: false, priority: null, dueDate: null, progress: 0 },
+          groupId: inbox.id, collapsed: false, createdAt: new Date().toISOString(),
+        });
+        await fetch(`${BASE}/maps/${mapId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(map) });
+      } catch (e) { /* zavři i tak */ }
+      window.close();
+    }
+
+    document.getElementById('save').addEventListener('click', save);
+    document.getElementById('text').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') save();
+      else if (e.key === 'Escape') window.close();
+    });
+    init();
+  </script>
+</body>
+</html>

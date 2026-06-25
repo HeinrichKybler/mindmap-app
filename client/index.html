@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindMap</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#7C3AED">
+</head>
+<body>
+  <!-- Toolbar -->
+  <header id="toolbar">
+    <div class="toolbar-left">MindMap</div>
+    <div class="toolbar-right">
+      <button class="tb-btn" id="undo-btn" title="Zpět (Ctrl+Z)" disabled>←</button>
+      <button class="tb-btn" id="redo-btn" title="Vpřed (Ctrl+Y)" disabled>→</button>
+      <button class="tb-btn" id="connect-btn">⟶ Propojit</button>
+      <button class="tb-btn" id="group-btn">+ Skupina</button>
+      <button class="tb-btn" id="layout-btn">⟳ Layout ▾</button>
+      <button class="tb-btn" id="timeline-btn">⏱ Timeline</button>
+      <button class="tb-btn" id="focus-btn" title="Focus mode (Ctrl+Shift+F)">👁</button>
+      <button class="tb-btn" id="pitch-btn" title="Pitch mode (Ctrl+P)">▶</button>
+      <button class="tb-btn" id="task-filter-btn" title="Zobrazit jen tasky">✓ Tasky</button>
+      <button class="tb-btn" id="number-btn" title="Číslovat uzly">№ Čísla</button>
+      <button class="tb-btn" id="export-btn">⬇ Export ▾</button>
+      <button class="tb-btn" id="import-btn">⬆ Import ▾</button>
+      <button class="tb-btn" id="settings-btn" title="Nastavení">⚙</button>
+    </div>
+  </header>
+
+  <!-- Pracovní plocha: sidebar + canvas -->
+  <div id="workspace">
+  <!-- Sidebar -->
+  <aside id="sidebar"></aside>
+
+  <!-- Canvas -->
+  <main id="canvas-wrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Mřížka pohybující se s pan/zoom -->
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+        </pattern>
+      </defs>
+
+      <!-- Pozadí s mřížkou -->
+      <rect id="grid-bg" x="0" y="0" width="100%" height="100%" fill="url(#grid)"/>
+
+      <!-- Pan/zoom skupina pro uzly -->
+      <g id="pan-group" transform="translate(0,0) scale(1)"></g>
+
+      <!-- Prázdný stav -->
+      <text id="empty-hint" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">Dvojklik pro přidání uzlu nebo klikni + Potomek</text>
+    </svg>
+
+    <!-- Minimapa placeholder -->
+    <div id="minimap"></div>
+
+    <!-- Zoom ovládání -->
+    <div id="zoom-controls">
+      <button id="zoom-in" title="Přiblížit">+</button>
+      <button id="zoom-out" title="Oddálit">−</button>
+      <button id="zoom-fit" title="Přizpůsobit">Fit</button>
+    </div>
+
+    <!-- Koš pro mazání uzlů (nad zoom tlačítky) -->
+    <div id="trash-bin" title="Přetáhni uzel sem pro smazání">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E24B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        <line x1="10" y1="11" x2="10" y2="17"></line>
+        <line x1="14" y1="11" x2="14" y2="17"></line>
+      </svg>
+    </div>
+  </main>
+  </div>
+
+  <!-- Knihovna pro PNG export (UMD global domtoimage) -->
+  <script src="/vendor/dom-to-image-more.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "name": "mindmap-app",
+  "version": "1.0.0",
+  "description": "MindMap aplikace - Node.js + Express, vanilla JS",
+  "author": {
+    "name": "hanz",
+    "email": "setunskyto@gmail.com"
+  },
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "release": "electron-builder --publish always",
+    "server-only": "node server/index.js",
+    "icons": "node build/generate-icons.cjs",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "jest": {
+    "transform": {},
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/server/tests/**/*.test.js"
+    ]
+  },
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dom-to-image-more": "^3.10.0",
+    "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.9",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "jest": "^30.4.2",
+    "sharp": "^0.35.2"
+  }
+}
