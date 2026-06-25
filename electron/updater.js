@@ -7,8 +7,9 @@ const { autoUpdater } = require('electron-updater');
 // getWindow = vrací hlavní okno (kvůli modalu), setQuitting = nastaví isQuitting=true
 // (aby restart aplikaci skutečně ukončil, ne jen schoval do trayu).
 function initAutoUpdate(getWindow, setQuitting) {
-  autoUpdater.autoDownload = true;          // stáhni novou verzi automaticky
-  autoUpdater.autoInstallOnAppQuit = true;  // kdyby uživatel odložil, nainstaluj při příštím ukončení
+  autoUpdater.autoDownload = true;              // stáhni novou verzi automaticky
+  autoUpdater.autoInstallOnAppQuit = true;      // kdyby uživatel odložil, nainstaluj při příštím ukončení
+  autoUpdater.disableDifferentialDownload = true;  // vždy plný installer — diferenciální stahování přes blockmap se zaseklává
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-update chyba:', (err && err.message) || 'neznámá');
