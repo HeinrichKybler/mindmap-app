@@ -297,7 +297,7 @@ function drawNode(node) {
     }));
     const tt = el('title');
     const lm = sidebar.getMaps().find((x) => x.id === node.linkedMapId);
-    tt.textContent = '→ ' + (lm ? lm.name : 'podmapa');
+    tt.textContent = 'Ctrl+klik → ' + (lm ? lm.name : 'podmapa');
     g.appendChild(tt);
   }
 
@@ -505,6 +505,7 @@ function attachDrag(g, node) {
 
     const st = getState();
     const shift = e.shiftKey;
+    const ctrl = e.ctrlKey || e.metaKey;  // Ctrl+klik na odkazový uzel = přechod do podmapy
     const scale = st.viewTransform.scale;
     const startX = e.clientX, startY = e.clientY;
     let moved = false;
@@ -561,8 +562,8 @@ function attachDrag(g, node) {
       } else if (edges.isConnectMode()) {
         // V propojovacím režimu klik vybírá uzly pro hranu
         edges.handleNodeClick(node);
-      } else if (node.linkedMapId) {
-        // Odkazový uzel: klik = přejdi na propojenou podmapu
+      } else if (ctrl && node.linkedMapId) {
+        // Odkazový uzel: jen Ctrl+klik přejde do propojené podmapy (prostý klik edituje uzel)
         clearMultiSelect();
         createOrOpenSubmap(node);
       } else {
