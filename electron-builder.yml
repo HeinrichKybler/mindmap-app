@@ -26,6 +26,8 @@ publish:
   provider: github
   owner: HeinrichKybler
   repo: mindmap-app
+  # release = publikuje rovnou (ne draft), aby šlo vydat jedním `npm run release`
+  releaseType: release
 files:
   - electron/**
   - server/**
