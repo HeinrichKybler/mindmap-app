@@ -44,25 +44,19 @@ function cubicBezierPath(x1, y1, x2, y2, fromNode, toNode) {
   const hBezier = (a, b) => { const cx = (b[0] - a[0]) * 0.5; return `M${a[0]},${a[1]} C${a[0] + cx},${a[1]} ${b[0] - cx},${b[1]} ${b[0]},${b[1]}`; };
   const line = (a, b) => `M${a[0]},${a[1]} L${b[0]},${b[1]}`;
 
-  const ALIGN = 20;   // práh „stejná osa" (přímá čára)
-  const DIAG = 0.6;   // poměr min/max nad kterým jde o diagonálu
-  const ratio = Math.max(adx, ady) ? Math.min(adx, ady) / Math.max(adx, ady) : 0;
+  const ALIGN = 20;  // práh „stejná osa" (přímá čára)
+  // „Skoro stejná výška" = svislé spany uzlů se překrývají (|dy| < součet polovin výšek).
+  // Pak je potomek vedle → boční střed; jinak je pod/nad → vždy spodní/horní střed.
+  const sameRow = ady < (fromNode.height + toNode.height) / 2;
 
-  // Diagonála — |dx| a |dy| přibližně stejné → východ z nejbližšího rohu, svislá bezier
-  if (ratio > DIAG) {
-    const a = [dx > 0 ? fromNode.x + fromNode.width : fromNode.x, dy > 0 ? fromNode.y + fromNode.height : fromNode.y];
-    const b = [dx > 0 ? toNode.x : toNode.x + toNode.width, dy > 0 ? toNode.y : toNode.y + toNode.height];
-    return vBezier(a, b);
-  }
-
-  // Svislé propojení (toNode pod/nad fromNode)
-  if (ady >= adx) {
-    if (adx < ALIGN) return dy > 0 ? line(fBottom, tTop) : line(fTop, tBottom);  // téměř stejná osa
+  if (!sameRow) {
+    // Potomek pod/nad → vždy ze spodního (resp. horního) středu, bez ohledu na posun v X
+    if (adx < ALIGN) return dy > 0 ? line(fBottom, tTop) : line(fTop, tBottom);  // přímo pod/nad → přímá čára
     return dy > 0 ? vBezier(fBottom, tTop) : vBezier(fTop, tBottom);
   }
 
-  // Vodorovné propojení (toNode vpravo/vlevo)
-  if (ady < ALIGN) return dx > 0 ? line(fRight, tLeft) : line(fLeft, tRight);   // téměř stejná osa
+  // Skoro stejná výška → z bočního středu
+  if (ady < ALIGN) return dx > 0 ? line(fRight, tLeft) : line(fLeft, tRight);   // přímo vedle → přímá čára
   return dx > 0 ? hBezier(fRight, tLeft) : hBezier(fLeft, tRight);
 }
 
