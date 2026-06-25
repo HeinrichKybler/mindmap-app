@@ -13,6 +13,7 @@ let activeId = null;     // id aktivní mapy
 let openMenuId = null;   // id mapy s otevřeným ⋯ dropdownem
 let bookmarksMode = false;   // sidebar zobrazuje záložky místo map
 let bookmarkItems = [];      // [{ mapId, mapName, nodeId, label }]
+let collapsedMaps = new Set();  // id rodičovských map, které mají sbalené podmapy
 
 // Inicializace - uloží callbacky a načte seznam map
 export async function init(onMapSelect, onGoToNode) {
@@ -98,10 +99,25 @@ function render() {
   addBtn.addEventListener('click', startCreate);
   el.appendChild(addBtn);
 
-  // Seznam map
+  // Seznam map jako strom (parentMapId → hierarchie)
   const list = document.createElement('div');
   list.className = 'sb-list';
-  for (const m of maps) list.appendChild(renderRow(m));
+  const byParent = {};
+  for (const m of maps) {
+    const p = (m.parentMapId && maps.some((x) => x.id === m.parentMapId)) ? m.parentMapId : '__root__';
+    (byParent[p] = byParent[p] || []).push(m);
+  }
+  const seen = new Set();  // ochrana proti cyklu v parentMapId
+  const renderLevel = (parentKey, depth) => {
+    for (const m of (byParent[parentKey] || [])) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      const hasChildren = !!byParent[m.id];
+      list.appendChild(renderRow(m, depth, hasChildren));
+      if (hasChildren && !collapsedMaps.has(m.id)) renderLevel(m.id, depth + 1);
+    }
+  };
+  renderLevel('__root__', 0);
   el.appendChild(list);
 
   // Statistiky aktuální mapy pod seznamem
@@ -157,13 +173,30 @@ function renderBookmarks() {
   el.appendChild(list);
 }
 
-// Vykreslí jeden řádek mapy
-function renderRow(m) {
+// Vykreslí jeden řádek mapy (depth = úroveň zanoření, hasChildren = má podmapy)
+function renderRow(m, depth = 0, hasChildren = false) {
   const row = document.createElement('div');
   row.className = 'sb-row' + (m.id === activeId ? ' active' : '');
+  row.dataset.mapId = m.id;
+  if (depth) row.style.paddingLeft = (8 + depth * 16) + 'px';
+
+  // Šipka rozbalení/sbalení podmap
+  const arrow = document.createElement('span');
+  arrow.style.cssText = 'display:inline-block;width:14px;flex:0 0 auto;text-align:center;color:#7C3AED;cursor:default;';
+  if (hasChildren) {
+    arrow.textContent = collapsedMaps.has(m.id) ? '▸' : '▾';
+    arrow.style.cursor = 'pointer';
+    arrow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (collapsedMaps.has(m.id)) collapsedMaps.delete(m.id); else collapsedMaps.add(m.id);
+      render();
+    });
+  }
+  row.appendChild(arrow);
 
   const name = document.createElement('span');
   name.className = 'sb-name';
+  if (depth) name.style.fontSize = '11px';
   name.textContent = m.name;
   name.addEventListener('click', () => selectMap(m.id));
   row.appendChild(name);
@@ -241,8 +274,7 @@ function startCreate() {
 // Přejmenování: inline edit přímo v řádku
 function startRename(m) {
   render();
-  const rows = el.querySelectorAll('.sb-row');
-  const row = Array.from(rows).find((_, i) => maps[i] && maps[i].id === m.id);
+  const row = el.querySelector(`.sb-row[data-map-id="${m.id}"]`);
   if (!row) return;
   const nameSpan = row.querySelector('.sb-name');
 
@@ -257,7 +289,18 @@ function startRename(m) {
         try {
           const full = await api.getMap(m.id);
           full.name = name;
+          const root = (full.nodes || []).find((n) => n.parentId == null);
+          if (root) root.label = name;  // přejmenuj i root uzel mapy
           await api.updateMap(m.id, full);
+          // Reverzní sync: přejmenuj odkazový uzel v nadřazené mapě
+          if (m.parentMapId) {
+            try {
+              const parent = await api.getMap(m.parentMapId);
+              let changed = false;
+              for (const n of (parent.nodes || [])) if (n.linkedMapId === m.id) { n.label = name; changed = true; }
+              if (changed) await api.updateMap(m.parentMapId, parent);
+            } catch (e) { /* best-effort */ }
+          }
         } catch (err) {
           console.error('Nepodařilo se přejmenovat mapu:', err.message);
           toast('Nepodařilo se přejmenovat mapu', 'error');

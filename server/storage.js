@@ -68,14 +68,16 @@ export function writeMap(id, data) {
     const file = path.join(MAPS_DIR, `${id}.json`);
     fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
 
-    // Upsert záznamu v indexu
+    // Upsert záznamu v indexu (vč. parentMapId pro stromovou hierarchii map)
     const index = readIndex();
     const entry = index.find((m) => m.id === id);
+    const parentMapId = data.parentMapId || null;
     if (entry) {
       entry.name = data.name;
       entry.updatedAt = now;
+      entry.parentMapId = parentMapId;
     } else {
-      index.push({ id, name: data.name, updatedAt: now });
+      index.push({ id, name: data.name, updatedAt: now, parentMapId });
     }
     writeIndex(index);
   } catch (err) {

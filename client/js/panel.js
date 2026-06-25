@@ -1,5 +1,5 @@
 // Pravý detail panel uzlu — název, barva, tagy, poznámka, obrázek, GitHub, akce
-import { getState, NODE_COLORS, autoSave, pushHistory, renderMap } from './app.js';
+import { getState, NODE_COLORS, autoSave, pushHistory, renderMap, syncSubmapName } from './app.js';
 import * as nodes from './nodes.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
@@ -336,6 +336,7 @@ function build() {
     if (current && v && v !== current.label) {
       current.label = v;
       nodes.refresh(current);
+      if (current.linkedMapId) syncSubmapName(current);  // přejmenuj i propojenou podmapu + její root
       pushHistory();
       autoSave();
     }

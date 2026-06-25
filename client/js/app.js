@@ -323,6 +323,100 @@ function startRubberBand(e, mode) {
   window.addEventListener('mouseup', up);
 }
 
+// --- Podmapové odkazy (sekce 2): navigace mezi mapami + breadcrumb ---
+let mapBreadcrumb = null;
+
+(function injectSubmapStyles() {
+  if (document.getElementById('submap-style')) return;
+  const s = document.createElement('style');
+  s.id = 'submap-style';
+  s.textContent = `
+    #map-breadcrumb { position: absolute; top: 0; left: 0; right: 0; z-index: 41;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 6px 12px; background: #1a1430ee; border-bottom: 1px solid #7C3AED44;
+      font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #9a9ab0; user-select: none; }
+    #map-breadcrumb .mb-back { cursor: pointer; color: #7C3AED; font-weight: 700; font-size: 14px; padding: 0 6px; }
+    #map-breadcrumb .mb-back:hover { color: #fff; }
+    #map-breadcrumb .mb-item { cursor: pointer; color: #c8c8da; padding: 2px 4px; border-radius: 4px; }
+    #map-breadcrumb .mb-item:hover { background: #7C3AED22; color: #fff; }
+    #map-breadcrumb .mb-item.mb-current { color: #7C3AED; font-weight: 600; cursor: default; }
+    #map-breadcrumb .mb-sep { color: #5a5a72; }`;
+  document.head.appendChild(s);
+})();
+
+// Vytvoří novou podmapu propojenou s uzlem, nebo (pokud už existuje) na ni přejde
+export async function createOrOpenSubmap(node) {
+  if (node.linkedMapId) {
+    if (sidebar.getMaps().some((m) => m.id === node.linkedMapId)) { await selectMap(node.linkedMapId); return; }
+    node.linkedMapId = null;  // cílová mapa byla smazaná → vytvoř ji znovu
+  }
+  try {
+    const created = await api.createMap(node.label || 'Podmapa', state.currentMapId);
+    const full = await api.getMap(created.id);
+    full.nodes = [nodes.makeNode({ parentId: null, label: node.label || 'Podmapa', x: 400, y: 300 })];
+    await api.updateMap(created.id, full);
+    node.linkedMapId = created.id;
+    renderMap();          // ukáže 🔗 na uzlu
+    pushHistory();
+    autoSave();           // označ odkaz jako neuloženou změnu…
+    await flushSave();    // …a hned ho zapiš do aktuální mapy před přepnutím
+    await sidebar.refresh();
+    await selectMap(created.id);
+  } catch (err) {
+    console.error('Podmapu se nepodařilo vytvořit:', err.message);
+    toast('Podmapu se nepodařilo vytvořit', 'error');
+  }
+}
+
+export function goToMap(id) { selectMap(id); }
+
+// Skok na nadřazenou mapu (tlačítko ← / Alt+← bez vybraného uzlu)
+export function goToParentMap() {
+  const m = sidebar.getMaps().find((x) => x.id === state.currentMapId);
+  if (m && m.parentMapId) selectMap(m.parentMapId);
+}
+
+// Sync názvu: přejmenování odkazového uzlu → přejmenuj cílovou mapu i její root uzel
+export async function syncSubmapName(node) {
+  if (!node || !node.linkedMapId) return;
+  try {
+    const full = await api.getMap(node.linkedMapId);
+    full.name = node.label;
+    const root = (full.nodes || []).find((n) => n.parentId == null);
+    if (root) root.label = node.label;
+    await api.updateMap(node.linkedMapId, full);
+    await sidebar.refresh();
+    updateMapBreadcrumb();
+  } catch (err) { console.error('Sync názvu podmapy selhal:', err.message); }
+}
+
+// Sestaví breadcrumb z řetězce parentMapId (zobrazí se jen v podmapě)
+function updateMapBreadcrumb() {
+  const wrap = document.getElementById('canvas-wrap');
+  if (!wrap) return;
+  const byId = {};
+  sidebar.getMaps().forEach((m) => { byId[m.id] = m; });
+  const chain = [];
+  let cur = byId[state.currentMapId];
+  const seen = new Set();  // ochrana proti cyklu v parentMapId
+  while (cur && !seen.has(cur.id)) { seen.add(cur.id); chain.unshift(cur); cur = cur.parentMapId ? byId[cur.parentMapId] : null; }
+  if (chain.length <= 1) { if (mapBreadcrumb) { mapBreadcrumb.remove(); mapBreadcrumb = null; } return; }
+  if (!mapBreadcrumb) { mapBreadcrumb = document.createElement('div'); mapBreadcrumb.id = 'map-breadcrumb'; wrap.appendChild(mapBreadcrumb); }
+  mapBreadcrumb.innerHTML = '';
+  const back = document.createElement('span');
+  back.className = 'mb-back'; back.textContent = '←'; back.title = 'Zpět na nadřazenou mapu (Alt+←)';
+  back.addEventListener('click', () => selectMap(chain[chain.length - 2].id));
+  mapBreadcrumb.appendChild(back);
+  chain.forEach((m, i) => {
+    if (i) { const sep = document.createElement('span'); sep.className = 'mb-sep'; sep.textContent = '›'; mapBreadcrumb.appendChild(sep); }
+    const item = document.createElement('span');
+    item.className = 'mb-item' + (i === chain.length - 1 ? ' mb-current' : '');
+    item.textContent = m.name;
+    if (i < chain.length - 1) item.addEventListener('click', () => selectMap(m.id));
+    mapBreadcrumb.appendChild(item);
+  });
+}
+
 // --- Dvojklik na prázdnou plochu → nový kořenový uzel ---
 svg.addEventListener('dblclick', (e) => {
   if (e.target !== svg && e.target !== gridBg) return;
@@ -445,6 +539,7 @@ async function selectMap(id) {
     panel.close();
     renderMap();
     stats.update();  // statistiky nově načtené mapy
+    updateMapBreadcrumb();  // breadcrumb podmapové hierarchie
     // Historie patří jen aktuální mapě: vyčisti a seedni baseline načteného stavu
     history.reset();
     pushHistory();
@@ -634,6 +729,8 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft') { e.preventDefault(); nodes.moveLevelUp(sel); return; }
     if (e.key === 'ArrowRight') { e.preventDefault(); nodes.moveLevelDown(sel); return; }
   }
+  // Alt+← bez vybraného uzlu = zpět na nadřazenou mapu (podmapová navigace)
+  if (e.altKey && e.key === 'ArrowLeft' && !sel) { e.preventDefault(); goToParentMap(); return; }
 
   // Delete / Backspace — smaž vybrané (multiselect má přednost), jinak vybraný uzel (hranu řeší edges.js)
   if (e.key === 'Delete' || e.key === 'Backspace') {

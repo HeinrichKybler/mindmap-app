@@ -31,9 +31,11 @@ router.post('/', (req, res) => {
     const now = new Date().toISOString();
     const id = randomUUID();
     const name = (req.body && req.body.name) ? String(req.body.name) : 'Nová mapa';
+    const parentMapId = (req.body && req.body.parentMapId) ? String(req.body.parentMapId) : null;
     const map = {
       id,
       name,
+      parentMapId,
       createdAt: now,
       updatedAt: now,
       nodes: [],

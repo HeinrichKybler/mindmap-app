@@ -1,6 +1,6 @@
 // Nativní kontextové menu (pravý klik) v SVG canvasu — uzel / hrana / skupina / prázdno.
 // Žádné browser default menu — contextmenu se vždy preventDefault.
-import { getState, addRootNodeAt, clientToMap, pushHistory, autoSave, getSelectedNodeIds, getSelectedGroupIds, deleteSelected } from './app.js';
+import { getState, addRootNodeAt, clientToMap, pushHistory, autoSave, getSelectedNodeIds, getSelectedGroupIds, deleteSelected, createOrOpenSubmap } from './app.js';
 import * as nodes from './nodes.js';
 import * as edges from './edges.js';
 import * as groups from './groups.js';
@@ -148,6 +148,8 @@ function nodeMenu(node) {
     { label: 'Focus na tuto větev', action: () => focusBranch(node) },
     { label: 'Drill down', action: () => drill.drillInto(node) },
     { label: 'Přidat summary (sourozenci)', action: () => nodes.summarizeSiblings(node) },
+    { sep: true },
+    { label: node.linkedMapId ? 'Přejít na podmapu 🔗' : 'Vytvořit podmapový odkaz', action: () => createOrOpenSubmap(node) },
     { sep: true },
     { label: 'Změnit barvu', colors: COLORS, onPick: (hex) => panel.applyColorTo(node, hex) },
     { sep: true },

@@ -1,10 +1,11 @@
 // Render uzlů jako SVG <g>, drag, resize, collapse, inline edit, přidávání potomků
-import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect } from './app.js';
+import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap } from './app.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
 import * as timeline from './timeline.js';
 import * as drill from './drill.js';
+import * as sidebar from './sidebar.js';
 import { toast } from './toast.js';
 
 // Překreslí hrany z aktuálního stavu (endpointy se pohybují s uzly)
@@ -62,6 +63,8 @@ export function makeNode(props = {}) {
     opacity: 1,
     bookmarked: false,
     isSummary: false,
+    linkedMapId: null,   // odkaz na podmapovou mapu (sekce 2)
+    references: [],      // cross-reference na jiné uzly/skupiny (sekce 3)
     task: { enabled: false, checked: false, priority: null, dueDate: null, progress: 0 },
     collapsed: false,
     createdAt: new Date().toISOString(),
@@ -285,6 +288,18 @@ function drawNode(node) {
     }));
   }
 
+  // Podmapový odkaz: vnitřní rámeček (vizuální „double") + tooltip s názvem cílové mapy
+  if (node.linkedMapId) {
+    g.appendChild(el('rect', {
+      x: 3, y: 3, width: w - 6, height: h - 6, rx: 8,
+      fill: 'none', stroke: c.stroke, 'stroke-width': 1, 'stroke-dasharray': '3 2',
+    }));
+    const tt = el('title');
+    const lm = sidebar.getMaps().find((x) => x.id === node.linkedMapId);
+    tt.textContent = '→ ' + (lm ? lm.name : 'podmapa');
+    g.appendChild(tt);
+  }
+
   // Multiselect: zvýraznění vybraného uzlu (amber border + glow)
   if (getState().selectedNodeIds.includes(node.id)) {
     rect.setAttribute('stroke', '#F59E0B');
@@ -358,6 +373,18 @@ function drawNode(node) {
     ic.textContent = node.icon;
     g.appendChild(ic);
     leftPad += 22;
+  }
+
+  // Ikona 🔗 u odkazového uzlu (podmapa)
+  if (node.linkedMapId) {
+    const lk = el('text', {
+      x: leftPad, y: h / 2,
+      'dominant-baseline': 'central', 'text-anchor': 'start', 'font-size': 14,
+    });
+    lk.style.pointerEvents = 'none';
+    lk.textContent = '🔗';
+    g.appendChild(lk);
+    leftPad += 20;
   }
 
   // Badge "+N" vpravo nahoře pokud collapsed a má potomky
@@ -508,6 +535,10 @@ function attachDrag(g, node) {
       } else if (edges.isConnectMode()) {
         // V propojovacím režimu klik vybírá uzly pro hranu
         edges.handleNodeClick(node);
+      } else if (node.linkedMapId) {
+        // Odkazový uzel: klik = přejdi na propojenou podmapu
+        clearMultiSelect();
+        createOrOpenSubmap(node);
       } else {
         // Klik bez pohybu otevře detail panel; zruš multiselect i výběr hrany
         clearMultiSelect();

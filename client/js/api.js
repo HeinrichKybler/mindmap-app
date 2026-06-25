@@ -26,9 +26,9 @@ export const api = {
     return request(`/maps/${id}`);
   },
 
-  // Vytvoření nové mapy
-  createMap(name) {
-    return request('/maps', { method: 'POST', body: JSON.stringify({ name }) });
+  // Vytvoření nové mapy (volitelně jako podmapa pod parentMapId)
+  createMap(name, parentMapId = null) {
+    return request('/maps', { method: 'POST', body: JSON.stringify({ name, parentMapId }) });
   },
 
   // Úprava mapy (body: celý objekt mapy)
