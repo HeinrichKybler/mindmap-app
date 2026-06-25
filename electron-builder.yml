@@ -1,5 +1,8 @@
 appId: com.hanz.mindmap
 productName: MindMap
+# Název installeru bez mezer — jinak GitHub mění mezery na tečky a auto-update
+# (latest.yml používá pomlčky) by soubor nenašel.
+artifactName: ${productName}-Setup-${version}.${ext}
 directories:
   output: dist
 # asar vypnuto: server běží přes child_process.fork a v RUN_AS_NODE režimu
