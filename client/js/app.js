@@ -212,6 +212,7 @@ export function addRootNodeAt(clientX, clientY) {
   panel.open(node);
   pushHistory();
   autoSave();
+  nodes.startInlineEdit(node);  // okamžité inline pojmenování (sekce 5)
   return node;
 }
 
@@ -410,16 +411,17 @@ let mapBreadcrumb = null;
   document.head.appendChild(s);
 })();
 
-// Vytvoří novou podmapu propojenou s uzlem, nebo (pokud už existuje) na ni přejde
-export async function createOrOpenSubmap(node) {
+// Vytvoří novou podmapu propojenou s uzlem (s daným názvem), nebo (pokud už existuje) na ni přejde
+export async function createOrOpenSubmap(node, name) {
   if (node.linkedMapId) {
     if (sidebar.getMaps().some((m) => m.id === node.linkedMapId)) { await selectMap(node.linkedMapId); return; }
     node.linkedMapId = null;  // cílová mapa byla smazaná → vytvoř ji znovu
   }
+  const mapName = (name && name.trim()) || node.label || 'Podmapa';
   try {
-    const created = await api.createMap(node.label || 'Podmapa', state.currentMapId);
+    const created = await api.createMap(mapName, state.currentMapId);
     const full = await api.getMap(created.id);
-    full.nodes = [nodes.makeNode({ parentId: null, label: node.label || 'Podmapa', x: 400, y: 300 })];
+    full.nodes = [nodes.makeNode({ parentId: null, label: mapName, x: 400, y: 300 })];
     await api.updateMap(created.id, full);
     node.linkedMapId = created.id;
     renderMap();          // ukáže 🔗 na uzlu

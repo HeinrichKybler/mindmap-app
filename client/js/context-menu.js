@@ -150,7 +150,7 @@ function nodeMenu(node) {
     { label: 'Drill down', action: () => drill.drillInto(node) },
     { label: 'Přidat summary (sourozenci)', action: () => nodes.summarizeSiblings(node) },
     { sep: true },
-    { label: node.linkedMapId ? 'Přejít na podmapu 🔗' : 'Vytvořit podmapový odkaz', action: () => createOrOpenSubmap(node) },
+    { label: node.linkedMapId ? 'Přejít na podmapu 🔗' : 'Vytvořit podmapový odkaz', action: () => nodes.startSubmapNaming(node) },
     { label: (node.references && node.references.length) ? `Reference ⬡ (${node.references.length})` : 'Přidat referenci ⬡', action: () => openReferenceModal(node) },
     { sep: true },
     { label: 'Změnit barvu', colors: COLORS, onPick: (hex) => panel.applyColorTo(node, hex) },
@@ -160,14 +160,15 @@ function nodeMenu(node) {
 }
 
 function edgeMenu(edge) {
+  const selectEdge = () => {
+    getState().selectedEdgeId = edge.id;
+    const m = getState().map;
+    edges.renderEdges(m.nodes, m.edges);
+    panel.openEdge(edge);
+  };
   return [
-    { label: 'Upravit popisek', action: () => {
-      getState().selectedEdgeId = edge.id;
-      const m = getState().map;
-      edges.renderEdges(m.nodes, m.edges);
-      panel.openEdge(edge);
-      panel.focusEdgeLabel();
-    } },
+    { label: 'Upravit popisek', action: () => { selectEdge(); panel.focusEdgeLabel(); } },
+    { label: 'Upravit styl čáry', action: selectEdge },
     { label: 'Smazat hranu', danger: true, action: () => edges.removeEdge(edge.id) },
   ];
 }

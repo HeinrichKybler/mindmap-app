@@ -1,5 +1,5 @@
 // Render uzlů jako SVG <g>, drag, resize, collapse, inline edit, přidávání potomků
-import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap, goToNode, goToMap, isEditMode, openNodeDetail } from './app.js';
+import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap, goToNode, goToMap, isEditMode, openNodeDetail, syncSubmapName } from './app.js';
 import { openReferenceModal } from './references.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
@@ -677,57 +677,72 @@ function attachResize(handle, g, node, rect, handleEl, labelText) {
   });
 }
 
-// --- Inline edit labelu (dvojklik) ---
+// --- Dvojklik na uzel = přidej potomka (sekce 1); přejmenování je výhradně na F2 ---
 function attachEdit(labelText, g, node) {
   g.addEventListener('dblclick', (e) => {
-    if (!isEditMode()) return;  // inline edit jen v edit mode (View mode má detail okno)
+    if (!isEditMode()) return;
     e.stopPropagation();
     e.preventDefault();
-    // Odstraň případný zaseklý edit input z dřívějška (pojistka proti „přilepenému" poli)
-    document.querySelectorAll('.node-edit-input').forEach((el) => el.remove());
+    addChild(node);
+  });
+}
 
-    const rect = getCanvasRect();
-    const v = getState().viewTransform;
-    const left = rect.left + v.x + node.x * v.scale;
-    const top = rect.top + v.y + node.y * v.scale;
+// Inline input nad uzlem; commit(value) na Enter/blur, cancel() na Escape (sekce 5)
+export function showNodeInput(node, initial, commit, cancel) {
+  document.querySelectorAll('.node-edit-input').forEach((el) => el.remove());
+  const rect = getCanvasRect();
+  const v = getState().viewTransform;
+  const input = document.createElement('input');
+  input.className = 'node-edit-input';
+  input.spellcheck = true;  // nativní kontrola pravopisu (OS podtrhne chyby)
+  input.value = initial || '';
+  input.style.left = (rect.left + v.x + node.x * v.scale) + 'px';
+  input.style.top = (rect.top + v.y + node.y * v.scale) + 'px';
+  input.style.width = node.width * v.scale + 'px';
+  input.style.height = node.height * v.scale + 'px';
+  document.body.appendChild(input);
+  // Fokus až po vykreslení — jinak ho doznívající událost může ukrást a input zůstane viset
+  requestAnimationFrame(() => { input.focus(); input.select(); });
 
-    const input = document.createElement('input');
-    input.className = 'node-edit-input';
-    input.value = node.label;
-    input.style.left = left + 'px';
-    input.style.top = top + 'px';
-    input.style.width = node.width * v.scale + 'px';
-    input.style.height = node.height * v.scale + 'px';
-    document.body.appendChild(input);
-    // Fokus až po vykreslení — jinak ho doznívající dvojklik může ukrást a input zůstane viset
-    requestAnimationFrame(() => { input.focus(); input.select(); });
+  let done = false;
+  const finish = (ok) => {
+    if (done) return;
+    done = true;
+    document.removeEventListener('mousedown', onOutside, true);
+    const val = input.value.trim();
+    input.remove();
+    if (ok) commit(val); else if (cancel) cancel();
+  };
+  const onOutside = (ev) => { if (ev.target !== input) finish(true); };
+  input.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();  // ať psaní nespouští globální klávesové zkratky
+    if (ev.key === 'Enter') finish(true);
+    else if (ev.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+  return input;
+}
 
-    let done = false;
-    const finish = (commit) => {
-      if (done) return;
-      done = true;
-      document.removeEventListener('mousedown', onOutside, true);
-      if (commit) {
-        const val = input.value.trim();
-        if (val && val !== node.label) {
-          node.label = val;
-          refresh(node);
-          pushHistory();
-          autoSave();
-        }
-      }
-      input.remove();
-    };
-    // Klik mimo input = potvrď a zavři (pojistka, kdyby blur nefiroval)
-    const onOutside = (ev) => { if (ev.target !== input) finish(true); };
-    input.addEventListener('keydown', (ev) => {
-      ev.stopPropagation();  // ať psaní nespouští globální klávesové zkratky (Delete, n, …)
-      if (ev.key === 'Enter') finish(true);
-      else if (ev.key === 'Escape') finish(false);
-    });
-    input.addEventListener('blur', () => finish(true));
-    // Navěšuj až po aktuálním cyklu událostí, ať listener neodpálí samotný dvojklik
-    setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+// Okamžité inline pojmenování nově vytvořeného uzlu — Enter potvrdí (capitalize 1. písmene),
+// Escape ponechá původní label. (sekce 5)
+export function startInlineEdit(node) {
+  showNodeInput(node, node.label, (val) => {
+    if (val) {
+      node.label = val.charAt(0).toUpperCase() + val.slice(1);
+      refresh(node);
+      if (node.linkedMapId) syncSubmapName(node);
+      pushHistory();
+      autoSave();
+    }
+  });
+}
+
+// Pojmenování podmapy před vytvořením odkazu (sekce 3): inline input → vytvoř mapu s tím názvem
+export function startSubmapNaming(node) {
+  if (node.linkedMapId) { createOrOpenSubmap(node); return; }  // odkaz už existuje → jen přejdi
+  showNodeInput(node, node.label || 'Podmapa', (val) => {
+    createOrOpenSubmap(node, val || node.label || 'Podmapa');
   });
 }
 
@@ -754,6 +769,7 @@ export function addChild(parentNode) {
   rerenderEdges();
   pushHistory();
   autoSave();
+  startInlineEdit(node);  // okamžité pojmenování (sekce 5)
   return node;
 }
 
@@ -776,6 +792,7 @@ export function addSibling(node) {
   rerenderEdges();
   pushHistory();
   autoSave();
+  startInlineEdit(sib);  // okamžité pojmenování (sekce 5)
   return sib;
 }
 

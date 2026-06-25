@@ -28,19 +28,22 @@ function cubicBezierPath(x1, y1, x2, y2) {
     s.textContent = `
       .edge-hit { cursor: pointer; }
       .tb-btn.active { background: #7C3AED; color: #fff; border-color: #7C3AED; }
-      #canvas.connecting { cursor: crosshair !important; }`;
+      #canvas.connecting { cursor: crosshair !important; }
+      .edge-animated { animation: edge-dash 0.7s linear infinite; }
+      @keyframes edge-dash { to { stroke-dashoffset: -24; } }`;
     document.head.appendChild(s);
   }
-  // Šipka na konec hrany
+  // Markery konce hrany: šipka, kosočtverec, kolečko (sekce 4)
   const defs = document.querySelector('#canvas defs');
   if (defs && !document.getElementById('arrowhead')) {
-    const marker = el('marker', {
-      id: 'arrowhead', markerWidth: 7, markerHeight: 7,
-      refX: 6, refY: 3, orient: 'auto', markerUnits: 'userSpaceOnUse',
-    });
-    const tri = el('path', { d: 'M0,0 L6,3 L0,6 Z', fill: 'context-stroke' });
-    marker.appendChild(tri);
-    defs.appendChild(marker);
+    const mk = (id, child) => {
+      const marker = el('marker', { id, markerWidth: 8, markerHeight: 8, refX: 6, refY: 3, orient: 'auto', markerUnits: 'userSpaceOnUse' });
+      marker.appendChild(child);
+      defs.appendChild(marker);
+    };
+    mk('arrowhead', el('path', { d: 'M0,0 L6,3 L0,6 Z', fill: 'context-stroke' }));
+    mk('arrowhead-diamond', el('path', { d: 'M0,3 L3,0 L6,3 L3,6 Z', fill: 'context-stroke' }));
+    mk('arrowhead-circle', el('circle', { cx: 3, cy: 3, r: 2.6, fill: 'context-stroke' }));
   }
 })();
 
@@ -97,16 +100,27 @@ export function renderEdges(nodeList, edgeList) {
     const selected = edge.id === selId;
     const REL = '#7C3AED';  // barva vztahové hrany
 
-    // Viditelná křivka — vztahová: fialová čárkovaná; jinak glow dle zdrojového uzlu
+    // Styl čáry (sekce 4): width, dash, color, arrowType, animated
+    const st = edge.style || {};
+    const color = st.color || (edge.isRelationship ? REL : c.stroke);
+    const sw = st.width || 1.5;
+    const dashMap = { solid: null, dashed: '8 4', dotted: '2 4' };
+    let dash = (st.dash && st.dash in dashMap) ? dashMap[st.dash] : (edge.isRelationship ? '8 4' : null);
+    if (st.animated && !dash) dash = '8 6';  // ať je animace vidět i u solid čáry
+    const arrowType = st.arrowType || 'arrow';
+    const markerId = arrowType === 'diamond' ? 'arrowhead-diamond'
+      : arrowType === 'circle' ? 'arrowhead-circle'
+      : arrowType === 'none' ? null : 'arrowhead';
+
     const path = el('path', {
-      d, fill: 'none',
-      stroke: edge.isRelationship ? REL : c.stroke,
-      'stroke-width': selected ? 3 : 1.5,
-      opacity: selected ? 1 : 0.5,
-      'marker-end': 'url(#arrowhead)',
+      d, fill: 'none', stroke: color,
+      'stroke-width': selected ? sw + 1.5 : sw,
+      opacity: selected ? 1 : 0.6,
     });
-    if (edge.isRelationship) path.setAttribute('stroke-dasharray', '8 4');
-    path.style.filter = `drop-shadow(0 0 3px ${edge.isRelationship ? REL : c.glow})`;
+    if (dash) path.setAttribute('stroke-dasharray', dash);
+    if (markerId) path.setAttribute('marker-end', `url(#${markerId})`);
+    if (st.animated) path.classList.add('edge-animated');
+    path.style.filter = `drop-shadow(0 0 3px ${color})`;
     path.style.pointerEvents = 'none';
     g.appendChild(path);
 

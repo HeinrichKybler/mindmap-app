@@ -6,6 +6,7 @@ import * as canvas from './canvas.js';
 import * as groups from './groups.js';
 import * as tags from './tags.js';
 import * as timeline from './timeline.js';
+import * as detail from './detail.js';
 import { api } from './api.js';
 import { toast } from './export.js';
 
@@ -30,6 +31,10 @@ const NODE_SHAPES = [
 // Barvy sticky komentářů (sekce 7)
 const COMMENT_COLORS = ['#F59E0B', '#3B82F6', '#059669', '#E24B4A'];
 let commentColor = COMMENT_COLORS[0];
+
+// Styly čáry hrany (sekce 4)
+const EDGE_DASHES = ['solid', 'dashed', 'dotted'];
+const EDGE_ARROWS = [['arrow', '→'], ['diamond', '◆'], ['circle', '○'], ['none', '—']];
 
 // Tvary skupin — mini SVG náhledy (sekce 4)
 const GROUP_SHAPES = [
@@ -125,6 +130,9 @@ let noteTimer = null;
     #node-panel .p-comment .p-comment-text { flex: 1 1 auto; word-break: break-word; color: #d8d8e8; }
     #node-panel .p-comment button { flex: 0 0 auto; background: transparent; border: none; cursor: pointer; color: #9a9ab0; font-weight: 700; }
     #node-panel .p-comment button:hover { color: #E24B4A; }
+    #node-panel .p-refs { display: flex; flex-direction: column; gap: 4px; }
+    #node-panel .p-ref { padding: 6px 8px; font-size: 12px; color: #cfe9f2; background: #0a0a16;
+      border-left: 3px solid #06B6D4; border-radius: 6px; word-break: break-word; }
     #node-panel input[type=range] { width: 100%; accent-color: #7C3AED; cursor: pointer; }
     #node-panel .p-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
     #node-panel .p-check input { accent-color: #7C3AED; cursor: pointer; }
@@ -178,9 +186,10 @@ function build() {
   root.id = 'node-panel';
   root.innerHTML = `
     <div data-r="nodeBody">
+    <button class="p-btn" data-r="previewBtn" style="margin-top:0">👁 Náhled (View okno)</button>
     <div class="p-section">
       <label class="p-label">Název</label>
-      <input type="text" data-r="name">
+      <input type="text" data-r="name" spellcheck="true">
     </div>
     <div class="p-section">
       <label class="p-label">Barva</label>
@@ -214,7 +223,7 @@ function build() {
     </div>
     <div class="p-section">
       <label class="p-label">Poznámka</label>
-      <textarea rows="4" data-r="note"></textarea>
+      <textarea rows="4" data-r="note" spellcheck="true"></textarea>
     </div>
     <div class="p-section">
       <label class="p-label">Obrázek</label>
@@ -228,6 +237,10 @@ function build() {
       <input type="url" data-r="github" placeholder="GitHub: https://github.com/...">
       <div class="p-links" data-r="links"></div>
       <button class="p-btn add" data-r="addLink">+ Přidat odkaz</button>
+    </div>
+    <div class="p-section" data-r="refSection" style="display:none">
+      <label class="p-label">Odkazuje na</label>
+      <div class="p-refs" data-r="refList"></div>
     </div>
     <div class="p-section">
       <label class="p-label">Datum</label>
@@ -245,7 +258,7 @@ function build() {
     </div>
     <div class="p-section">
       <label class="p-label">Komentáře</label>
-      <textarea rows="2" data-r="commentText" placeholder="Nový komentář…"></textarea>
+      <textarea rows="2" data-r="commentText" placeholder="Nový komentář…" spellcheck="true"></textarea>
       <div class="p-comment-colors" data-r="commentColors"></div>
       <button class="p-btn add" data-r="addComment">+ Přidat komentář</button>
       <div class="p-comments" data-r="comments"></div>
@@ -263,7 +276,30 @@ function build() {
     <div data-r="edgeBody" style="display:none">
     <div class="p-section">
       <label class="p-label">Popisek hrany</label>
-      <input type="text" data-r="edgeLabel" placeholder="Popisek…">
+      <input type="text" data-r="edgeLabel" placeholder="Popisek…" spellcheck="true">
+    </div>
+    <div class="p-section">
+      <label class="p-label">Tloušťka <span data-r="edgeWidthVal"></span></label>
+      <input type="range" min="1" max="5" step="0.5" data-r="edgeWidth">
+    </div>
+    <div class="p-section">
+      <label class="p-label">Styl čáry</label>
+      <div class="p-styles" data-r="edgeDash"></div>
+    </div>
+    <div class="p-section">
+      <label class="p-label">Barva</label>
+      <div class="p-colors" data-r="edgeColors"></div>
+      <div class="p-color-custom">
+        <input type="color" data-r="edgeColorPicker" title="Vlastní barva">
+        <input type="text" data-r="edgeColorHex" maxlength="7" placeholder="výchozí">
+      </div>
+    </div>
+    <div class="p-section">
+      <label class="p-label">Šipka</label>
+      <div class="p-styles" data-r="edgeArrow"></div>
+    </div>
+    <div class="p-section">
+      <label class="p-check"><input type="checkbox" data-r="edgeAnimated"> Animace čáry</label>
     </div>
     <button class="p-btn danger" data-r="edgeDelete">Smazat hranu</button>
     </div>
@@ -434,15 +470,17 @@ function build() {
   refs.taskProgress.addEventListener('change', () => { if (current) { pushHistory(); autoSave(); } });
 
   // Listenery
-  refs.name.addEventListener('blur', () => {
-    const v = refs.name.value.trim();
-    if (current && v && v !== current.label) {
-      current.label = v;
-      nodes.refresh(current);
-      if (current.linkedMapId) syncSubmapName(current);  // přejmenuj i propojenou podmapu + její root
+  // Živé přejmenování: input event hned aktualizuje SVG <text> uzlu + debounce autoSave (sekce 6)
+  refs.name.addEventListener('input', () => {
+    if (!current) return;
+    current.label = refs.name.value;
+    nodes.refresh(current);
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => {
+      if (current && current.linkedMapId) syncSubmapName(current);  // přejmenuj i propojenou podmapu + root
       pushHistory();
       autoSave();
-    }
+    }, 400);
   });
 
   refs.tagInput.addEventListener('keydown', (e) => {
@@ -485,6 +523,9 @@ function build() {
   refs.liviaTags.addEventListener('click', () => callLivia('tags'));
   refs.liviaComment.addEventListener('click', () => callLivia('comment'));
 
+  // Náhled (View okno) — přepne na read-only detail okno (sekce 2)
+  refs.previewBtn.addEventListener('click', () => { if (current) detail.open(current); });
+
   // Hrana: popisek + smazání
   refs.edgeLabel.addEventListener('input', () => {
     if (!currentEdge) return;
@@ -494,6 +535,43 @@ function build() {
     clearTimeout(noteTimer);
     noteTimer = setTimeout(autoSave, 500);
   });
+
+  // Styl hrany (sekce 4): tloušťka / dash / barva / šipka / animace
+  refs.edgeWidth.addEventListener('input', () => {
+    if (!currentEdge) return;
+    ensureEdgeStyle(currentEdge);
+    currentEdge.style.width = Number(refs.edgeWidth.value);
+    refs.edgeWidthVal.textContent = refs.edgeWidth.value + 'px';
+    rerenderEdgesLive();
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { pushHistory(); autoSave(); }, 400);
+  });
+  for (const ds of EDGE_DASHES) {
+    const dash = ds === 'dashed' ? 'stroke-dasharray="6 3"' : ds === 'dotted' ? 'stroke-dasharray="2 3"' : '';
+    const b = document.createElement('div'); b.className = 'p-style'; b.dataset.dash = ds;
+    b.innerHTML = `<svg width="44" height="22"><line x1="4" y1="11" x2="40" y2="11" stroke="#7C3AED" stroke-width="2" ${dash}/></svg>`;
+    b.addEventListener('click', () => setEdgeDash(ds));
+    refs.edgeDash.appendChild(b);
+  }
+  for (const hex of SWATCHES) {
+    const dot = document.createElement('div'); dot.className = 'p-color'; dot.dataset.hex = hex; dot.style.background = hex;
+    dot.addEventListener('click', () => setEdgeColor(hex));
+    refs.edgeColors.appendChild(dot);
+  }
+  refs.edgeColorPicker.addEventListener('input', () => setEdgeColor(refs.edgeColorPicker.value));
+  refs.edgeColorHex.addEventListener('input', () => { const v = refs.edgeColorHex.value.trim(); if (/^#[0-9a-fA-F]{6}$/.test(v)) setEdgeColor(v); });
+  for (const [type, sym] of EDGE_ARROWS) {
+    const b = document.createElement('div'); b.className = 'p-style'; b.dataset.arrow = type; b.textContent = sym; b.style.fontSize = '15px';
+    b.addEventListener('click', () => setEdgeArrow(type));
+    refs.edgeArrow.appendChild(b);
+  }
+  refs.edgeAnimated.addEventListener('change', () => {
+    if (!currentEdge) return;
+    ensureEdgeStyle(currentEdge);
+    currentEdge.style.animated = refs.edgeAnimated.checked;
+    rerenderEdgesLive(); pushHistory(); autoSave();
+  });
+
   refs.edgeDelete.addEventListener('click', () => {
     if (!currentEdge) return;
     edges.removeEdge(currentEdge.id);
@@ -557,6 +635,7 @@ export function open(node) {
   renderPreview();
   renderLinks();
   renderComments();
+  renderPanelRefs();
   root.classList.add('open');
 }
 
@@ -570,6 +649,7 @@ export function openEdge(edge) {
   refs.edgeBody.style.display = '';
   refs.groupBody.style.display = 'none';
   refs.edgeLabel.value = edge.label || '';
+  renderEdgeStyle();
   root.classList.add('open');
 }
 
@@ -688,6 +768,44 @@ function setGroupShape(name) {
 function renderGroupShapes() {
   const cur = (currentGroup && currentGroup.shape) || 'rectangle';
   refs.groupShapes.querySelectorAll('.p-shape').forEach((d) => d.classList.toggle('sel', d.dataset.shape === cur));
+}
+
+// --- Styl hrany (sekce 4) ---
+function ensureEdgeStyle(edge) {
+  if (!edge.style) edge.style = { width: 1.5, dash: 'solid', color: null, arrowType: 'arrow', animated: false };
+}
+function rerenderEdgesLive() { const m = getState().map; edges.renderEdges(m.nodes, m.edges); }
+function setEdgeDash(ds) { if (!currentEdge) return; ensureEdgeStyle(currentEdge); currentEdge.style.dash = ds; renderEdgeStyle(); rerenderEdgesLive(); pushHistory(); autoSave(); }
+function setEdgeColor(hex) {
+  if (!currentEdge) return;
+  ensureEdgeStyle(currentEdge); currentEdge.style.color = hex; renderEdgeStyle(); rerenderEdgesLive();
+  clearTimeout(colorHistoryTimer); colorHistoryTimer = setTimeout(pushHistory, 400); autoSave();
+}
+function setEdgeArrow(type) { if (!currentEdge) return; ensureEdgeStyle(currentEdge); currentEdge.style.arrowType = type; renderEdgeStyle(); rerenderEdgesLive(); pushHistory(); autoSave(); }
+function renderEdgeStyle() {
+  const st = (currentEdge && currentEdge.style) || {};
+  refs.edgeWidth.value = st.width || 1.5;
+  refs.edgeWidthVal.textContent = (st.width || 1.5) + 'px';
+  refs.edgeDash.querySelectorAll('.p-style').forEach((d) => d.classList.toggle('sel', d.dataset.dash === (st.dash || 'solid')));
+  refs.edgeArrow.querySelectorAll('.p-style').forEach((d) => d.classList.toggle('sel', d.dataset.arrow === (st.arrowType || 'arrow')));
+  const hex = (st.color || '').toLowerCase();
+  refs.edgeColors.querySelectorAll('.p-color').forEach((d) => d.classList.toggle('sel', d.dataset.hex.toLowerCase() === hex));
+  refs.edgeColorPicker.value = /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : '#7c3aed';
+  refs.edgeColorHex.value = st.color || '';
+  refs.edgeAnimated.checked = !!st.animated;
+}
+
+// --- Reference read-only v panelu (parita s detail oknem; sekce 2) ---
+function renderPanelRefs() {
+  const list = (current && current.references) || [];
+  refs.refSection.style.display = list.length ? '' : 'none';
+  refs.refList.innerHTML = '';
+  for (const r of list) {
+    const row = document.createElement('div');
+    row.className = 'p-ref';
+    row.textContent = '⬡ ' + (r.targetMapName ? r.targetMapName + ' › ' : '') + (r.targetLabel || r.targetNodeId) + (r.note ? ' — ' + r.note : '');
+    refs.refList.appendChild(row);
+  }
 }
 
 // --- Odkazy (node.links, sekce 2) ---
