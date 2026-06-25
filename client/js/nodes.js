@@ -1,5 +1,6 @@
 // Render uzlů jako SVG <g>, drag, resize, collapse, inline edit, přidávání potomků
-import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap } from './app.js';
+import { getState, nodeColors, autoSave, pushHistory, getCanvasRect, renderMap, toggleNodeSelect, clearMultiSelect, createOrOpenSubmap, goToNode, goToMap } from './app.js';
+import { openReferenceModal } from './references.js';
 import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
@@ -423,6 +424,31 @@ function drawNode(node) {
       window.open(node.githubUrl, '_blank');
     });
     g.appendChild(gh);
+  }
+
+  // Cross-reference indikátor ⬡ vlevo dole (posunutý, pokud je tam GitHub ikona) + tooltip se seznamem
+  if (Array.isArray(node.references) && node.references.length) {
+    const rx = node.githubUrl ? 24 : 8;
+    const ref = el('text', {
+      class: 'ref-icon', x: rx, y: h - 5, 'text-anchor': 'start', 'font-size': 12, fill: '#06B6D4',
+    });
+    ref.style.cursor = 'pointer';
+    ref.textContent = '⬡';
+    const tt = el('title');
+    tt.textContent = 'Reference:\n' + node.references
+      .map((r) => '→ ' + (r.targetLabel || r.targetNodeId) + (r.targetMapName ? ' [' + r.targetMapName + ']' : '') + (r.note ? ' — ' + r.note : ''))
+      .join('\n');
+    ref.appendChild(tt);
+    ref.addEventListener('mousedown', (e) => e.stopPropagation());
+    ref.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Klik skočí na první referenci typu uzel; skupinová ref otevře alespoň cílovou mapu
+      const first = node.references.find((r) => r.targetType === 'node') || node.references[0];
+      if (!first) return;
+      if (first.targetType === 'node') goToNode(first.targetMapId, first.targetNodeId);
+      else if (first.targetMapId !== getState().currentMapId) goToMap(first.targetMapId);
+    });
+    g.appendChild(ref);
   }
 
   // Label v dostupné oblasti; při těsném prostoru (hodně ozdob vlevo) zarovnej vlevo,
