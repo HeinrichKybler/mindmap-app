@@ -34,7 +34,10 @@ export const NODE_COLORS = {
 
 // Vrátí barevné schéma uzlu — vlastní barva (color==='custom') má přednost
 export function nodeColors(node) {
-  if (node && node.color === 'custom' && node.customColor) return node.customColor;
+  if (node && node.color === 'custom') {
+    // Poškozená/chybějící vlastní barva → výchozí fialová (ne šedá neutral)
+    return (node.customColor && node.customColor.stroke) ? node.customColor : NODE_COLORS.purple;
+  }
   return NODE_COLORS[node && node.color] || NODE_COLORS.neutral;
 }
 
@@ -727,6 +730,10 @@ window.addEventListener('keydown', (e) => {
 
   // Read-only detail okno / command palette si řeší klávesy samy (Escape přes vlastní listener)
   if (detail.isOpen() || palette.isOpen()) return;
+
+  // Inline pojmenování uzlu běží — klávesy patří jen jeho inputu (pojistka: kdyby fokus selhal,
+  // ať psaný název nespouští globální zkratky jako E/N a nevytvoří kaskádu nechtěných akcí)
+  if (document.querySelector('.node-edit-input')) return;
 
   // Otevřený modal (Nastavení / Cheatsheet) pohlcuje mapové zkratky — projde jen jeho zavření,
   // ať se mapa pod overlayem nemění (Delete/Tab/Enter/Space/… by jinak prošly)

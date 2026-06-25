@@ -687,9 +687,13 @@ function attachEdit(labelText, g, node) {
   });
 }
 
-// Inline input nad uzlem; commit(value) na Enter/blur, cancel() na Escape (sekce 5)
+// Jediný aktivní inline input (kvůli čistému cleanupu, ať nezůstávají viset / neunikají listenery)
+let activeNameInput = null;
+function clearActiveNameInput() { if (activeNameInput) { activeNameInput.kill(); activeNameInput = null; } }
+
+// Inline input nad uzlem; commit(value) na Enter/blur/klik mimo, cancel() na Escape (sekce 5)
 export function showNodeInput(node, initial, commit, cancel) {
-  document.querySelectorAll('.node-edit-input').forEach((el) => el.remove());
+  clearActiveNameInput();  // korektně uklidí předchozí input (vč. listeneru)
   const rect = getCanvasRect();
   const v = getState().viewTransform;
   const input = document.createElement('input');
@@ -701,26 +705,39 @@ export function showNodeInput(node, initial, commit, cancel) {
   input.style.width = node.width * v.scale + 'px';
   input.style.height = node.height * v.scale + 'px';
   document.body.appendChild(input);
-  // Fokus až po vykreslení — jinak ho doznívající událost může ukrást a input zůstane viset
-  requestAnimationFrame(() => { input.focus(); input.select(); });
 
   let done = false;
+  let listenerAdded = false;
+  let addTimer = null;
+  const onOutside = (ev) => { if (ev.target !== input) finish(true); };
+  const cleanup = () => {
+    if (addTimer) { clearTimeout(addTimer); addTimer = null; }
+    if (listenerAdded) { document.removeEventListener('mousedown', onOutside, true); listenerAdded = false; }
+    if (input.parentNode) input.remove();
+  };
   const finish = (ok) => {
     if (done) return;
     done = true;
-    document.removeEventListener('mousedown', onOutside, true);
+    if (activeNameInput && activeNameInput.input === input) activeNameInput = null;
     const val = input.value.trim();
-    input.remove();
+    cleanup();
     if (ok) commit(val); else if (cancel) cancel();
   };
-  const onOutside = (ev) => { if (ev.target !== input) finish(true); };
+  // kill = zruš bez commitu (při nahrazení novým inputem)
+  activeNameInput = { input, kill: () => { if (!done) { done = true; cleanup(); } } };
+
   input.addEventListener('keydown', (ev) => {
     ev.stopPropagation();  // ať psaní nespouští globální klávesové zkratky
     if (ev.key === 'Enter') finish(true);
     else if (ev.key === 'Escape') finish(false);
   });
   input.addEventListener('blur', () => finish(true));
-  setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+
+  // Fokus hned + fallback přes setTimeout (NE rAF — ten je v pozadí/zátěži throttlovaný a fokus by selhal)
+  input.focus(); input.select();
+  setTimeout(() => { if (!done && document.activeElement !== input) { input.focus(); input.select(); } }, 0);
+  // Klik mimo input = potvrď; listener navěs až po aktuálním cyklu (ať ho nespustí samotná tvorba)
+  addTimer = setTimeout(() => { addTimer = null; if (!done) { document.addEventListener('mousedown', onOutside, true); listenerAdded = true; } }, 0);
   return input;
 }
 
