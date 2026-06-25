@@ -4,6 +4,7 @@ import * as panel from './panel.js';
 import * as edges from './edges.js';
 import * as canvas from './canvas.js';
 import { toast } from './toast.js';
+import { promptText } from './prompt.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const MIN_W = 120;
@@ -149,8 +150,8 @@ function attachResize(handle, group) {
 }
 
 // Vytvoří skupinu se středem na (cx,cy) v mapových souřadnicích (ptá se na název)
-function createGroup(cx, cy) {
-  const name = prompt('Název skupiny:');
+async function createGroup(cx, cy) {
+  const name = await promptText('Název skupiny:');
   if (name === null) return;
   const group = {
     id: crypto.randomUUID(),

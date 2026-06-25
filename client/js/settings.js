@@ -164,7 +164,8 @@ export function open() {
   const modal = document.createElement('div');
   modal.id = 'set-modal';
   modal.innerHTML = '<h2>Nastavení</h2><div id="set-tabs"></div><div id="set-body"></div>';
-  const close = () => overlay.remove();
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
   const tabsEl = modal.querySelector('#set-tabs');
   const bodyEl = modal.querySelector('#set-body');
   let active = TABS[0];
@@ -182,9 +183,7 @@ export function open() {
   tabContent(active, bodyEl, close);
   modal.addEventListener('mousedown', (e) => e.stopPropagation());
   overlay.addEventListener('mousedown', close);
-  document.addEventListener('keydown', function onKey(e) {
-    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
-  });
+  document.addEventListener('keydown', onKey);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 }

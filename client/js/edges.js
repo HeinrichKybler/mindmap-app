@@ -3,6 +3,7 @@ import { getState, nodeColors, autoSave, pushHistory } from './app.js';
 import * as nodes from './nodes.js';
 import * as panel from './panel.js';
 import * as drill from './drill.js';
+import { promptText } from './prompt.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -163,17 +164,17 @@ function selectEdge(edge) {
 }
 
 // --- Přidání / odebrání hrany ---
-export function addEdge(fromId, toId) {
+export async function addEdge(fromId, toId) {
   if (fromId === toId) return;
   const map = getState().map;
   // Zákaz duplicitní hrany (stejný from+to)
   if (map.edges.some((e) => e.fromId === fromId && e.toId === toId)) return;
   const from = map.nodes.find((n) => n.id === fromId);
   const to = map.nodes.find((n) => n.id === toId);
-  // Vztahová hrana = uzly nejsou v přímém parent-child vztahu → jiný styl + povinný popisek
+  // Vztahová hrana = uzly nejsou v přímém parent-child vztahu → jiný styl + popisek
   const isRel = !(from && to && (to.parentId === fromId || from.parentId === toId));
   const edge = { id: crypto.randomUUID(), fromId, toId, label: '', isRelationship: isRel };
-  if (isRel) edge.label = (prompt('Popis vztahu:') || '').trim();
+  if (isRel) edge.label = ((await promptText('Popis vztahu:')) || '').trim();
   map.edges.push(edge);
   rerender();
   pushHistory();

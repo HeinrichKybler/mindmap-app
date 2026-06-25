@@ -298,15 +298,15 @@ function openExportMenu(btn, items) {
   const r = btn.getBoundingClientRect();
   menu.style.top = `${r.bottom + 4}px`;
   menu.style.left = `${r.left}px`;
+  const close = () => { menu.remove(); document.removeEventListener('click', close); };
   for (const [label, fn] of items) {
     const it = document.createElement('div');
     it.className = 'tb-menu-item';
     it.textContent = label;
-    it.addEventListener('click', () => { menu.remove(); fn(); });
+    it.addEventListener('click', () => { close(); fn(); });
     menu.appendChild(it);
   }
   document.body.appendChild(menu);
-  const close = () => { menu.remove(); document.removeEventListener('click', close); };
   setTimeout(() => document.addEventListener('click', close), 0);
 }
 
