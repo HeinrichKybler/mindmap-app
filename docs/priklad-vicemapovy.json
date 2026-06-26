@@ -1,0 +1,328 @@
+{
+  "format": "mindmap-multi",
+  "maps": [
+    {
+      "key": "main",
+      "name": "Lívia",
+      "parentMapKey": null,
+      "nodes": [
+        {
+          "id": "m_root",
+          "parentId": null,
+          "label": "Lívia",
+          "x": 520,
+          "y": 80,
+          "width": 200,
+          "height": 56,
+          "color": "purple",
+          "customColor": null,
+          "icon": "🎯",
+          "shape": "rounded",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": true,
+          "isSummary": false,
+          "tags": [
+            "ai"
+          ],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [
+            {
+              "targetMapKey": "main",
+              "targetNodeId": "m_data",
+              "targetType": "node",
+              "note": "klíčová data"
+            }
+          ],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": false,
+            "checked": false,
+            "priority": null,
+            "dueDate": null,
+            "progress": 0
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z"
+        },
+        {
+          "id": "m_voice",
+          "parentId": "m_root",
+          "label": "Hlasový model",
+          "x": 360,
+          "y": 280,
+          "width": 180,
+          "height": 52,
+          "color": "green",
+          "customColor": null,
+          "icon": "🔧",
+          "shape": "hexagon",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": false,
+          "isSummary": false,
+          "tags": [],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": false,
+            "checked": false,
+            "priority": null,
+            "dueDate": null,
+            "progress": 0
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z",
+          "linkedMapKey": "voice"
+        },
+        {
+          "id": "m_data",
+          "parentId": "m_root",
+          "label": "Data",
+          "x": 700,
+          "y": 280,
+          "width": 180,
+          "height": 52,
+          "color": "amber",
+          "customColor": null,
+          "icon": "📊",
+          "shape": "ellipse",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": false,
+          "isSummary": false,
+          "tags": [],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [
+            {
+              "targetMapKey": "voice",
+              "targetNodeId": "v_train",
+              "targetType": "node",
+              "note": "viz trénink"
+            }
+          ],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": false,
+            "checked": false,
+            "priority": null,
+            "dueDate": null,
+            "progress": 0
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z"
+        }
+      ],
+      "edges": [
+        {
+          "id": "me1",
+          "fromId": "m_root",
+          "toId": "m_voice",
+          "label": "",
+          "isRelationship": false
+        },
+        {
+          "id": "me2",
+          "fromId": "m_root",
+          "toId": "m_data",
+          "label": "",
+          "isRelationship": false
+        }
+      ],
+      "groups": [
+        {
+          "id": "mg1",
+          "label": "Jádro",
+          "color": "#7C3AED",
+          "shape": "rectangle",
+          "x": 320,
+          "y": 240,
+          "width": 580,
+          "height": 160
+        }
+      ],
+      "settings": {
+        "autoNumber": false
+      }
+    },
+    {
+      "key": "voice",
+      "name": "Hlasový model",
+      "parentMapKey": "main",
+      "nodes": [
+        {
+          "id": "v_root",
+          "parentId": null,
+          "label": "Hlasový model",
+          "x": 480,
+          "y": 80,
+          "width": 200,
+          "height": 56,
+          "color": "green",
+          "customColor": null,
+          "icon": "🔧",
+          "shape": "rounded",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": false,
+          "isSummary": false,
+          "tags": [],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": false,
+            "checked": false,
+            "priority": null,
+            "dueDate": null,
+            "progress": 0
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z"
+        },
+        {
+          "id": "v_train",
+          "parentId": "v_root",
+          "label": "Whisper fine-tune",
+          "x": 340,
+          "y": 280,
+          "width": 180,
+          "height": 52,
+          "color": "green",
+          "customColor": null,
+          "icon": "⚡",
+          "shape": "rectangle",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": false,
+          "isSummary": false,
+          "tags": [],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "https://github.com/HeinrichKybler/livia/issues/7",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": true,
+            "checked": false,
+            "priority": "high",
+            "dueDate": null,
+            "progress": 40
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z"
+        },
+        {
+          "id": "v_wake",
+          "parentId": "v_root",
+          "label": "Wake-word",
+          "x": 620,
+          "y": 280,
+          "width": 180,
+          "height": 52,
+          "color": "amber",
+          "customColor": null,
+          "icon": "🔊",
+          "shape": "diamond",
+          "borderStyle": "solid",
+          "opacity": 1,
+          "bookmarked": false,
+          "isSummary": false,
+          "tags": [],
+          "note": "",
+          "imageBase64": null,
+          "githubUrl": "",
+          "date": null,
+          "links": [],
+          "comments": [],
+          "references": [],
+          "linkedMapId": null,
+          "locked": false,
+          "task": {
+            "enabled": false,
+            "checked": false,
+            "priority": null,
+            "dueDate": null,
+            "progress": 0
+          },
+          "collapsed": false,
+          "createdAt": "2026-06-26T09:00:00.000Z"
+        }
+      ],
+      "edges": [
+        {
+          "id": "ve1",
+          "fromId": "v_root",
+          "toId": "v_train",
+          "label": "",
+          "isRelationship": false
+        },
+        {
+          "id": "ve2",
+          "fromId": "v_root",
+          "toId": "v_wake",
+          "label": "",
+          "isRelationship": false
+        },
+        {
+          "id": "vr1",
+          "fromId": "v_train",
+          "toId": "v_wake",
+          "label": "sdílí audio",
+          "isRelationship": true,
+          "style": {
+            "width": 1.5,
+            "dash": "dashed",
+            "color": "#3B82F6",
+            "arrowType": "diamond",
+            "animated": true
+          }
+        }
+      ],
+      "groups": [
+        {
+          "id": "vg1",
+          "label": "Pipeline",
+          "color": "#059669",
+          "shape": "ellipse",
+          "x": 300,
+          "y": 240,
+          "width": 520,
+          "height": 160
+        }
+      ],
+      "settings": {
+        "autoNumber": false
+      }
+    }
+  ]
+}

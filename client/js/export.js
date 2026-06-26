@@ -117,8 +117,15 @@ async function onFile(e) {
     toast('Neplatný soubor — není platný JSON', 'error');
     return;
   }
-  if (!isValidMap(data)) { toast('Neplatný soubor — chybí nodes nebo edges', 'error'); return; }
+  // Vícemapový formát { maps: [...] } umí podmapy (linkedMapKey) i reference (targetMapKey).
+  // Jednomapový formát { nodes, edges, groups } zůstává jako dřív (bez křížových odkazů).
+  if (Array.isArray(data.maps)) return importMulti(data);
+  if (isValidMap(data)) return importSingle(data, file);
+  toast('Neplatný soubor — chybí nodes/edges/groups nebo maps', 'error');
+}
 
+// Jednomapový import (původní chování)
+async function importSingle(data, file) {
   // Název: z mapy, jinak z názvu souboru
   const name = (data.name && String(data.name).trim())
     || file.name.replace(/\.json$/i, '')
@@ -135,6 +142,83 @@ async function onFile(e) {
     console.error('Import selhal:', err);
     // Ukliď prázdnou mapu, která už vznikla, ať nezůstane orphan v indexu
     if (created) { try { await api.deleteMap(created.id); } catch {} await sidebar.refresh(); }
+    toast('Import se nepodařilo uložit', 'error');
+  }
+}
+
+// Doplní reálná serverová ID do uzlu: linkedMapKey → linkedMapId,
+// references[].targetMapKey → targetMapId (+ dopočítá targetMapName/targetLabel z dat souboru)
+function resolveNodeKeys(node, keyToId, keyToName, labelIndex) {
+  const out = { ...node };
+  if (out.linkedMapKey != null) {
+    out.linkedMapId = keyToId[out.linkedMapKey] || null;
+    delete out.linkedMapKey;
+  }
+  if (Array.isArray(out.references)) {
+    out.references = out.references.map((r) => {
+      const rr = { ...r };
+      if (rr.targetMapKey != null) {
+        rr.targetMapId = keyToId[rr.targetMapKey] || null;
+        rr.targetMapName = rr.targetMapName || keyToName[rr.targetMapKey] || '';
+        const idx = labelIndex[rr.targetMapKey];
+        if (!rr.targetLabel && idx && idx[rr.targetNodeId] != null) rr.targetLabel = idx[rr.targetNodeId];
+        delete rr.targetMapKey;
+      }
+      return rr;
+    });
+  }
+  return out;
+}
+
+// Vícemapový import: vytvoří všechny mapy, zjistí jejich reálná ID a doplní křížové odkazy.
+// Tím jde přes soubor vytvořit i to, co se jinak dělá ručně v appce (podmapy, reference).
+async function importMulti(data) {
+  const maps = Array.isArray(data.maps) ? data.maps : [];
+  if (!maps.length) { toast('Neplatný soubor — maps je prázdné', 'error'); return; }
+  for (const m of maps) {
+    if (!m || typeof m !== 'object' || !m.key || !isValidMap(m)) {
+      toast('Neplatný soubor — každá mapa potřebuje key a pole nodes/edges/groups', 'error');
+      return;
+    }
+  }
+  const keys = maps.map((m) => String(m.key));
+  if (new Set(keys).size !== keys.length) { toast('Neplatný soubor — duplicitní key mapy', 'error'); return; }
+
+  const created = [];  // pro úklid při chybě
+  try {
+    // 1) Vytvoř všechny mapy → reálná ID + názvy + index labelů uzlů (pro dopočet referencí)
+    const keyToId = {}, keyToName = {}, labelIndex = {};
+    for (const m of maps) {
+      const name = (m.name && String(m.name).trim()) || String(m.key);
+      const c = await api.createMap(name);
+      created.push(c.id);
+      keyToId[m.key] = c.id;
+      keyToName[m.key] = name;
+      const idx = {};
+      for (const n of m.nodes) idx[n.id] = n.label;
+      labelIndex[m.key] = idx;
+    }
+    // 2) Ulož každou mapu s vyřešenými odkazy (linkedMapId, references, parentMapId)
+    for (const m of maps) {
+      const nodes = m.nodes.map((n) => resolveNodeKeys(n, keyToId, keyToName, labelIndex));
+      await api.updateMap(keyToId[m.key], {
+        name: keyToName[m.key],
+        parentMapId: m.parentMapKey != null ? (keyToId[m.parentMapKey] || null) : null,
+        nodes,
+        edges: Array.isArray(m.edges) ? m.edges : [],
+        groups: Array.isArray(m.groups) ? m.groups : [],
+        settings: m.settings || { autoNumber: false },
+      });
+    }
+    await sidebar.refresh();
+    const rootMap = maps.find((m) => m.parentMapKey == null) || maps[0];
+    sidebar.select(keyToId[rootMap.key]);
+    toast(`Importováno map: ${maps.length}`, 'success');
+  } catch (err) {
+    console.error('Vícemapový import selhal:', err);
+    // Úklid: smaž všechny mapy, které už vznikly, ať nezůstanou orphan
+    for (const id of created) { try { await api.deleteMap(id); } catch {} }
+    await sidebar.refresh();
     toast('Import se nepodařilo uložit', 'error');
   }
 }
