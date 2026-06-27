@@ -115,6 +115,7 @@ do aplikace se neukládají, slouží k provázání map (sekce 7).
 | `collapsed` | bool | `true` skryje potomky (musí mít potomky, ať to dává smysl) |
 | `createdAt` | string | ISO datum, např. `"2026-06-26T09:00:00.000Z"` |
 | `linkedMapKey` | string (volitelné, jen vícemapový) | klíč mapy, na kterou je uzel podmapový odkaz — viz sekce 7 |
+| `groupId` | string (volitelné) | příslušnost uzlu ke skupině (id skupiny). **Nemusíš uvádět** — import přiřadí členství automaticky podle toho, ve které skupině leží střed uzlu (viz sekce 6) |
 
 **Číselníky k vložení:**
 - Emoji (doporučená sada z appky): `📌 🔥 ⚡ 💡 🎯 🔧 🐛 ✅ ❌ ⚠️ 🟣 🟢 🔵 🟡 🔴 📝 🖼️ 🔗 📊 🎮` (jiné emoji taky fungují).
@@ -164,6 +165,13 @@ vázané na uzly přes id, jen je opticky obklopují).
 | `color` | string | `#hex` (klidně barvy uzlů: `#7C3AED`, `#059669`, `#F59E0B`, `#E24B4A`) |
 | `shape` | string | `rectangle` \| `ellipse` \| `diamond` \| `hexagon` \| `cloud` (custom NEPOUŽÍVEJ — vyžaduje ruční SVG path) |
 | `x`, `y`, `width`, `height` | number | obdélník, který má obklopit cluster uzlů (přidej ~40 px okraj kolem nich) |
+
+**Členství uzlů ve skupině.** Uzel je „ve skupině", pokud jeho **střed** leží uvnitř obdélníku
+skupiny — to import vyhodnotí automaticky a nastaví `node.groupId`. Členské uzly se pak hýbou
+se skupinou (přesun skupiny je vezme s sebou) a auto-layout skupinu přizpůsobí jejich pozicím.
+Takže stačí umístit uzly dovnitř rámečku skupiny; `groupId` ručně psát nemusíš (ale můžeš —
+explicitní `groupId` se respektuje). Leží-li střed uzlu ve více skupinách, vyhraje ta poslední
+(nejvrchnější) v pořadí.
 
 ---
 

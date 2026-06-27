@@ -273,6 +273,30 @@ export function groupSelected() {
   autoSave();
 }
 
+// --- Přizpůsobení skupin členským uzlům (po auto-layoutu) ---
+// Každou skupinu, která má členy (n.groupId === gr.id), zvětší/posune tak, aby je obklopila.
+// Prázdné skupiny nechá být. Volá se po runLayout, aby skupiny „šly s uzly".
+export function reflowGroups() {
+  const st = getState();
+  const PAD = 30;
+  let changed = false;
+  for (const gr of st.map.groups) {
+    const members = st.map.nodes.filter((n) => n.groupId === gr.id);
+    if (!members.length) continue;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of members) {
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height);
+    }
+    gr.x = minX - PAD; gr.y = minY - PAD;
+    gr.width = Math.max(MIN_W, (maxX - minX) + PAD * 2);
+    gr.height = Math.max(MIN_H, (maxY - minY) + PAD * 2);
+    changed = true;
+  }
+  if (changed) renderGroups();
+  return changed;
+}
+
 // --- Odebrání skupiny ---
 export function removeGroup(id) {
   const map = getState().map;

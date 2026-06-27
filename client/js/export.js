@@ -134,6 +134,7 @@ async function importSingle(data, file) {
   let created = null;
   try {
     created = await api.createMap(name);
+    if (Array.isArray(data.nodes)) assignGroupMembership(data.nodes, data.groups);
     await api.updateMap(created.id, { ...data, name });
     await sidebar.refresh();
     sidebar.select(created.id);
@@ -143,6 +144,22 @@ async function importSingle(data, file) {
     // Ukliď prázdnou mapu, která už vznikla, ať nezůstane orphan v indexu
     if (created) { try { await api.deleteMap(created.id); } catch {} await sidebar.refresh(); }
     toast('Import se nepodařilo uložit', 'error');
+  }
+}
+
+// Přiřadí uzlům groupId podle skupiny, v níž leží jejich střed (stejně jako ruční drop do skupiny).
+// Bez toho by importované uzly ve skupině nebyly její členové a nehýbaly by se s ní.
+// Explicitně zadaný groupId v souboru se respektuje.
+function assignGroupMembership(nodes, groupList) {
+  if (!Array.isArray(groupList) || !groupList.length) return;
+  for (const n of nodes) {
+    if (n.groupId) continue;  // respektuj explicitní příslušnost ze souboru
+    const cx = n.x + (n.width || 0) / 2;
+    const cy = n.y + (n.height || 0) / 2;
+    for (let i = groupList.length - 1; i >= 0; i--) {  // odshora (nejvrchnější skupina)
+      const gr = groupList[i];
+      if (cx >= gr.x && cx <= gr.x + gr.width && cy >= gr.y && cy <= gr.y + gr.height) { n.groupId = gr.id; break; }
+    }
   }
 }
 
@@ -201,6 +218,7 @@ async function importMulti(data) {
     // 2) Ulož každou mapu s vyřešenými odkazy (linkedMapId, references, parentMapId)
     for (const m of maps) {
       const nodes = m.nodes.map((n) => resolveNodeKeys(n, keyToId, keyToName, labelIndex));
+      assignGroupMembership(nodes, m.groups);
       await api.updateMap(keyToId[m.key], {
         name: keyToName[m.key],
         parentMapId: m.parentMapKey != null ? (keyToId[m.parentMapKey] || null) : null,

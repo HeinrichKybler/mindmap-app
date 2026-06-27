@@ -909,6 +909,7 @@ function runLayout(layoutFn) {
     g.setAttribute('transform', `translate(${n.x},${n.y})`);
   }
   edges.renderEdges(state.map.nodes, state.map.edges);
+  groups.reflowGroups();  // skupiny se přizpůsobí novým pozicím svých členských uzlů
   // Historie + persistence hned (nezávisle na délce CSS animace), ať se nemíchá s mezilehlou akcí
   pushHistory();
   autoSave();
