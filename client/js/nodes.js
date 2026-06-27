@@ -7,6 +7,7 @@ import * as canvas from './canvas.js';
 import * as timeline from './timeline.js';
 import * as drill from './drill.js';
 import * as sidebar from './sidebar.js';
+import * as groups from './groups.js';
 import { toast } from './toast.js';
 
 // Překreslí hrany z aktuálního stavu (endpointy se pohybují s uzly)
@@ -623,6 +624,7 @@ function attachDrag(g, node) {
           if (gr) node.groupId = gr.id;
           else delete node.groupId;
         }
+        groups.reflowGroups();  // skupiny se přizpůsobí novým pozicím svých členů (auto-fit)
         pushHistory();
         autoSave();
       } else if (shift) {

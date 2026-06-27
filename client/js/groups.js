@@ -297,6 +297,51 @@ export function reflowGroups() {
   return changed;
 }
 
+// Členové skupiny: primárně dle groupId, fallback dle geometrie (střed uzlu uvnitř rámečku)
+function membersOf(group, allNodes) {
+  let m = allNodes.filter((n) => n.groupId === group.id);
+  if (!m.length) {
+    m = allNodes.filter((n) => {
+      const cx = n.x + n.width / 2, cy = n.y + n.height / 2;
+      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height;
+    });
+  }
+  return m;
+}
+
+// Odvodí smysluplný název skupiny z jejích uzlů (offline heuristika, bez LLM)
+function deriveGroupName(members) {
+  const ids = new Set(members.map((n) => n.id));
+  // 1) Lokální kořen (rodič mimo skupinu) s potomky ve skupině → jeho label shrnuje celek
+  const localRoots = members.filter((n) => n.parentId == null || !ids.has(n.parentId));
+  if (localRoots.length === 1) {
+    const r = localRoots[0];
+    if (members.some((n) => n.parentId === r.id) && r.label && r.label.trim()) return r.label.trim();
+  }
+  // 2) Nejčastější tag (musí být aspoň u 2 uzlů)
+  const tagCount = {};
+  for (const n of members) for (const t of (n.tags || [])) tagCount[t] = (tagCount[t] || 0) + 1;
+  let bestTag = null, bestN = 1;
+  for (const t in tagCount) if (tagCount[t] > bestN) { bestN = tagCount[t]; bestTag = t; }
+  if (bestTag) return bestTag.charAt(0).toUpperCase() + bestTag.slice(1);
+  // 3) Spojení prvních labelů
+  const labels = members.map((n) => (n.label || '').trim()).filter(Boolean);
+  if (labels.length) { const head = labels.slice(0, 3).join(', '); return labels.length > 3 ? head + '…' : head; }
+  return `Skupina (${members.length})`;
+}
+
+// --- Pojmenuj skupinu podle obsahu (kontextové menu) ---
+export function autoNameGroup(group) {
+  const st = getState();
+  const members = membersOf(group, st.map.nodes);
+  if (!members.length) { toast('Skupina nemá žádné uzly', 'info'); return; }
+  group.label = deriveGroupName(members);
+  renderGroups();
+  pushHistory();
+  autoSave();
+  toast('Skupina pojmenována: ' + group.label, 'success');
+}
+
 // --- Odebrání skupiny ---
 export function removeGroup(id) {
   const map = getState().map;

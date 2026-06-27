@@ -1,11 +1,48 @@
 // Hierarchický auto-layout — postorder výpočet šířky podstromu
-const SIBLING_GAP = 40;   // mezera mezi sourozenci
+const SIBLING_GAP = 50;   // mezera mezi sourozenci
 const ROOT_GAP = 120;     // mezera mezi stromy
-const V_GAP = 60;         // svislý krok navíc k výšce uzlu
+const V_GAP = 70;         // svislý krok navíc k výšce uzlu
 const START_Y = 60;       // počáteční y všech stromů
 
-// Přepočítá x,y všech uzlů a vrátí stejné pole
-export function applyLayout(nodes) {
+// --- Pomůcky pro „chytré" řazení sourozenců (méně křížení) ---
+// Sousedé z VŠECH hran (hierarchie i vztahy) → seznam id
+function buildAdjacency(nodes, edges) {
+  const adj = {};
+  nodes.forEach((n) => { adj[n.id] = []; });
+  if (Array.isArray(edges)) {
+    for (const e of edges) {
+      if (adj[e.fromId] && adj[e.toId]) { adj[e.fromId].push(e.toId); adj[e.toId].push(e.fromId); }
+    }
+  }
+  return adj;
+}
+// Cena rozložení = součet vodorovných vzdáleností konců hran (méně = související uzly blíž)
+function layoutCost(nodes, edges) {
+  if (!Array.isArray(edges) || !edges.length) return 0;
+  const byId = {};
+  nodes.forEach((n) => { byId[n.id] = n; });
+  let cost = 0;
+  for (const e of edges) {
+    const a = byId[e.fromId], b = byId[e.toId];
+    if (a && b) cost += Math.abs((a.x + a.width / 2) - (b.x + b.width / 2));
+  }
+  return cost;
+}
+// Snímek pořadí sourozenců (id) — pro návrat k nejlepší variantě
+function snapshotOrder(roots, children) {
+  const o = { roots: roots.map((n) => n.id), children: {} };
+  for (const id in children) o.children[id] = children[id].map((n) => n.id);
+  return o;
+}
+function restoreOrder(o, roots, children, byId) {
+  roots.length = 0;
+  o.roots.forEach((id) => roots.push(byId[id]));
+  for (const id in o.children) children[id] = o.children[id].map((cid) => byId[cid]);
+}
+
+// Přepočítá x,y všech uzlů a vrátí stejné pole.
+// Když dostane `edges`, seřadí sourozence tak, aby související uzly byly blíž (méně křížení).
+export function applyLayout(nodes, edges) {
   const byId = {};
   nodes.forEach((n) => { byId[n.id] = n; });
   const children = {};
@@ -48,11 +85,71 @@ export function applyLayout(nodes) {
     }
   }
 
-  let curX = 0;
-  for (const r of roots) {
-    subtreeWidth(r);
-    place(r, curX, START_Y);
-    curX += widthCache[r.id] + ROOT_GAP;
+  function placeAll() {
+    let curX = 0;
+    for (const r of roots) {
+      subtreeWidth(r);
+      place(r, curX, START_Y);
+      curX += widthCache[r.id] + ROOT_GAP;
+    }
+  }
+
+  placeAll();
+
+  // Chytré řazení sourozenců — barycenter heuristika; ponecháme variantu s nejnižší cenou,
+  // takže výsledek není nikdy horší než původní pořadí.
+  if (Array.isArray(edges) && edges.length) {
+    const adj = buildAdjacency(nodes, edges);
+    const centerX = (n) => n.x + n.width / 2;
+    const baryOf = (n) => {
+      const ns = adj[n.id];
+      if (!ns.length) return centerX(n);
+      let s = 0;
+      for (const id of ns) s += centerX(byId[id]);
+      return s / ns.length;
+    };
+    let bestCost = layoutCost(nodes, edges);
+    let bestOrder = snapshotOrder(roots, children);
+    for (let iter = 0; iter < 4; iter++) {
+      roots.sort((a, b) => baryOf(a) - baryOf(b));
+      for (const id in children) children[id].sort((a, b) => baryOf(a) - baryOf(b));
+      placeAll();
+      const c = layoutCost(nodes, edges);
+      if (c < bestCost) { bestCost = c; bestOrder = snapshotOrder(roots, children); }
+    }
+    restoreOrder(bestOrder, roots, children, byId);
+    placeAll();
+  }
+  return nodes;
+}
+
+// Rozrazí překrývající se uzly (AABB) tak, aby měly aspoň `gap` mezeru.
+// Bezpečnostní pas po jakémkoli layoutu — žádné dva uzly pak neleží přes sebe.
+export function resolveOverlaps(nodes, gap = 24) {
+  const MAX_ITER = 80;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let any = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        const ox = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);   // překryv X
+        const oy = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y); // překryv Y
+        const needX = ox + gap, needY = oy + gap;  // co chybí do mezery na dané ose
+        if (needX > 0 && needY > 0) {              // moc blízko na obou osách → odtlač
+          any = true;
+          if (needX <= needY) {
+            const push = needX / 2;
+            if ((a.x + a.width / 2) <= (b.x + b.width / 2)) { a.x -= push; b.x += push; }
+            else { a.x += push; b.x -= push; }
+          } else {
+            const push = needY / 2;
+            if ((a.y + a.height / 2) <= (b.y + b.height / 2)) { a.y -= push; b.y += push; }
+            else { a.y += push; b.y -= push; }
+          }
+        }
+      }
+    }
+    if (!any) break;
   }
   return nodes;
 }

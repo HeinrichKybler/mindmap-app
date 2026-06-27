@@ -191,6 +191,7 @@ function groupColorPicker(group) {
 function groupMenu(group) {
   return [
     { label: 'Přejmenovat', action: () => { panel.openGroup(group); panel.focusGroupName(); } },
+    { label: 'Pojmenovat podle obsahu', action: () => groups.autoNameGroup(group) },
     { label: 'Změnit barvu', action: () => groupColorPicker(group) },
     { label: 'Smazat skupinu', danger: true, action: () => groups.removeGroup(group.id) },
   ];

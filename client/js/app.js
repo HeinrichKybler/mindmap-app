@@ -6,7 +6,7 @@ import * as edges from './edges.js';
 import * as groups from './groups.js';
 import * as panel from './panel.js';
 import * as canvas from './canvas.js';
-import { applyLayout, applyRadial, applyFishbone, applyOrgChart } from './layout.js';
+import { applyLayout, applyRadial, applyFishbone, applyOrgChart, resolveOverlaps } from './layout.js';
 import * as history from './history.js';
 import * as search from './search.js';
 import * as timeline from './timeline.js';
@@ -899,7 +899,8 @@ async function flushSave() {
 // --- Auto-layout ---
 function runLayout(layoutFn) {
   if (timeline.isActive()) { toast('Layout není dostupný v timeline režimu', 'error'); return; }
-  (layoutFn || applyLayout)(state.map.nodes);
+  (layoutFn || applyLayout)(state.map.nodes, state.map.edges);
+  resolveOverlaps(state.map.nodes);  // bezpečnostní pas: žádné dva uzly přes sebe
   const lyr = document.getElementById('nodes-layer');
   // Animovaný přechod uzlů na nové pozice
   for (const n of state.map.nodes) {
